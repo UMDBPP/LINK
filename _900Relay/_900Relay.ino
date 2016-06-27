@@ -25,7 +25,7 @@ uint16_t XBee_PAN_ID = 0x0B0B; // PAN ID of xbee (must match all xbees)
 
 // List of AP_ID for forwarding data to ground
 uint16_t Transmitted_AP_IDs[NUM_TRANS_APIDS] = {1, 2, 3, 4, 5};
-uint8_t Ground_AP_ID = 0x03;
+uint8_t Ground_AP_ID = 0x01;
 const uint8_t SyncByte[2] = {0x18, 0x01};
 const uint8_t RespondSyncByte[2] = {0x18, 0x02};
 
@@ -183,23 +183,23 @@ void xbee2radio(){
     int AP_ID = CCSDS_RD_APID(PriHeader);
 
     // if message is addressed to Link, respond
-    if(AP_ID == XBee_MY_Addr){
+    //if(AP_ID == XBee_MY_Addr){
 
       // display debugging info
-      debug_serial.println("debug_serial -> Respond: ");
-      printPktInfo(PriHeader, CmdHeader, TlmHeader);
+      //debug_serial.println("debug_serial -> Respond: ");
+      //printPktInfo(PriHeader, CmdHeader, TlmHeader);
       
-      message_response();
-    }
+      //message_response();
+    //}
     
     // Check against desired addresses and send if matches
-    bool AP_ID_Match = false;
-    for(int i = 0; i < NUM_TRANS_APIDS; i++) {
-      if(AP_ID == i) {
-        AP_ID_Match = true;
-      }
-    }
-    if (AP_ID_Match == true){
+    //bool AP_ID_Match = false;
+    //for(int i = 0; i < NUM_TRANS_APIDS; i++) {
+    //  if(AP_ID == i) {
+    //    AP_ID_Match = true;
+    //  }
+    //}
+    //if (AP_ID_Match == true){
 
       // print the bytes being sent to the debug
       debug_serial.print("Sending: ");
@@ -213,7 +213,7 @@ void xbee2radio(){
        }
        
     debug_serial.println();
-    }
+    //}
        
   } 
   else if(XbeeBytesRead > -4) {
