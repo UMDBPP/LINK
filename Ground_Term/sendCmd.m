@@ -1,14 +1,32 @@
-function sendCmd(APID,FcnCode)
+function sendCmd(varargin)
 % SENDCMD
 %
 %   sendCmd(APID,FcnCode)
-%       sends a command, selected by FcnCode, to APID
+%       sends a command, selected by FcnCode, to APID. Will print packet to
+%       command line.
+%   sendCmd(APID,FcnCode,0)
+%       sends a command, selected by FcnCode, to APID. Will suppress
+%       outputs to command line.
+%
+%   This function expects that the variables serConn and logfile will exist
+%   in the base workspace.
+% 
+%   example:
+%   sendCmd(1,10)
+%   sendCmd(apid.scorch,scorch.armstatus)
 %
 % Changelog:
 %   2016-04-21  SPL     Initial Version
 %   2016-06-24  SPL     Removed option for sending parameters with command,
 %                       will be handled by seperate function
 %
+
+    % setup the input validation
+    p = inputParser;
+    addRequired(p,'APID',@(x) validateAPID(x));
+    addRequired(p,'FcnCode',@(x) validateFcnCode(x));
+    addOptional(p,'verbose',1,@isnumeric);
+    parse(p,varargin{:});
 
     % check that streams exist in base workspace
     if(~evalin('base','exist(''serConn'',''var'')'))
@@ -22,9 +40,10 @@ function sendCmd(APID,FcnCode)
     serConn = evalin('base','serConn');
     logfile = evalin('base','logfile');
 
-    % make sure the FcnCode is an integer (in case user is using
+    % make sure APID and FcnCode are integers (in case user is using
     % enumerations)
-    FcnCode = uint8(FcnCode);
+    FcnCode = uint8(p.Results.FcnCode);
+    APID = uint8(p.Results.APID);
     
     % create the command header
     SeqCnt = 2;     % FIXME: update to actually increment the count
@@ -37,14 +56,16 @@ function sendCmd(APID,FcnCode)
     
     % update the packet checksum
     arr(7) = calcChecksum(arr);
-arr
+
     % write the packet
     fwrite(serConn,arr);
 
     % print the packet to the command line
-    fprintf('S %s: ', datestr(now,'HH:MM:SS.FFF'));
-    fprintf('%X ', arr);
-    fprintf('\n');
+    if(p.Results.verbose > 0)
+        fprintf('S %s: ', datestr(now,'HH:MM:SS.FFF'));
+        fprintf('%X ', arr);
+        fprintf('\n');
+    end
     
     % log the packet
     fprintf(logfile,'S %s: ', datestr(now,'HH:MM:SS.FFF'));

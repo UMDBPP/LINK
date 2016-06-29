@@ -1,14 +1,16 @@
 function arr = sendCmdwArg(APID,FcnCode,varargin)
 % SENDCMD
 %
+%   DO NOT USE - argument interpretation needs reworking
+%
 %   sendCmd(APID,FcnCode)
 %       sends a command, selected by FcnCode, to APID
 %
 %   sendCmd(APID,FcnCode,varargin)
 %       sends a command, selected by FcnCode, to APID including parameters
-%
-%   Steve Lentine
-%   4/21/16
+%   
+% Changelog:
+%   SPL     2016-04-21  Initial Version
 %
 
 %     % get streams from base workspace

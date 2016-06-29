@@ -1,5 +1,7 @@
 function processLogFile(filename)
-
+%
+%   DO NOT USE - needs to be reworked
+%
     if(~exist(filename,'file'))
        error('processLogFile:FileDoesntExist','File ''%s'' cant be found',filename); 
     end

@@ -1,36 +1,42 @@
 function start_serial_monitor(varargin)
 % starts the telemetry monitor
 %
-%   start_serial_monitor()
-%       starts the telemetry monitor on COM8 at 9600 baud
-%   start_serial_monitor(serPortn)
+%   START_SERIAL_MONITOR(serPortn)
 %       starts the telemetry monitor on the specified serial port at 9600
 %       baud
-%   start_serial_monitor(serPortn, baud)
+%   START_SERIAL_MONITOR(serPortn, baud)
 %       starts the telemetry monitor of the specified serial port at the
 %       specified baud rate
+%   START_SERIAL_MONITOR(serPortn, baud, verbose)
+%       same as above, but lower verbose numbers will suppress output to
+%       the command line
 %
 %   Sets up a timer callback to periodically poll the serial port for new
 %   input. Will attempt to identify the beginning of the packet and parse
 %   the byte-stream for a CCSDS header and packet format. Will read the
 %   telemetry into a database to allow processing.
 %
+%   example:
+%   START_SERIAL_MONITOR(5)
+%   START_SERIAL_MONITOR(5, 9600)
+%
+%   Changelog:
+%   SPL     2016-06-29  Added logging of raw bytes received to prevent data
+%                       loss if packets are not parsed correctly. Removed
+%                       default serial port (will vary between computers).
+%                       Changed to using inputParser to handle input
+%                       validation. Added verbosity argument.
+%  
 
+    % setup the input validation
+    p = inputParser;
+    addRequired(p,'serPortn',@(x) validateSerPort(x));
+    addOptional(p,'baud',9600,@(x) validateBaudRate(x));
+    addOptional(p,'verbose',1,@isnumeric);
+    parse(p,varargin{:});
+    
     % add necessary folders to path
     setupPath()
-
-    % set default inputs
-    serPortn = 8;
-    baud = 9600;
-    
-    % check for inputs, override defaults with function inputs
-    if(nargin > 0)
-        serPortn = varargin{1};
-    elseif(nargin > 1)
-        baud = varargin{2};
-    elseif(nargin > 2)
-        error('start_serial_monitor:Too many arguments','Too many arguments supplied');
-    end
 
     % define strings corresponding to serial ports
     serList = [{'COM1'} ; ...
@@ -47,25 +53,20 @@ function start_serial_monitor(varargin)
          {'COM12'} ];
 
     % get the user-specified port
-    serPort = serList{serPortn};
-    fprintf('Connecting to serial %s \n',serPort);
+    serPort = serList{p.Results.serPortn};
+    if(p.Results.verbose>0)
+        fprintf('Connecting to serial %s \n',serPort);
+    end
     
     % create the serial object
     serConn = serial(serPort);
 
     % check that the user-entered baud rate makes sense
-    valid_baudrates = [300, 600, 1200, 2400, 4800, 9600, 14400, 19200, 28800, 38400, 57600, 115200, 250000];
-    if(isnumeric(baud))
-        if(~ismember(baud,valid_baudrates))
-            warning('BADASSCmdTlmMonitor:connectBtnCallback:NonStandardBaud', 'The entered baud rate, ''%d'' is not a standard baud rate and may not work, connecting...',baud)
-        else
-            fprintf('Using baud rate %d \n',baud);
-        end
-        set(serConn,'BaudRate',uint32(baud));       
-    else
-        warning('BADASSCmdTlmMonitor:connectBtnCallback:NonIntBaud', 'The entered baud rate, ''%d'' is not an numeric value, enter a integer value and connect again.',baud)
-        return
+    if(p.Results.verbose>0)
+        fprintf('Using baud rate %d \n',p.Results.baud);
     end
+    set(serConn,'BaudRate',uint32(p.Results.baud));       
+
 
     % try opening the serial port, if it doesn't work, try closing and
     % reopening
@@ -76,12 +77,14 @@ function start_serial_monitor(varargin)
         fopen(serConn);
     end
     
-    % open a log file
+    % if the logs directory doesn't exist, create it
     if(~exist(fullfile(fileparts(mfilename('fullpath')),'logs'),'dir'))
         warning('start_serial_monitor:LogsDirMissing','Ground_Term/logs does not exist, creating it');
         mkdir(fullfile(fileparts(mfilename('fullpath')),'logs'));
         addpath(fullfile(fileparts(mfilename('fullpath')),'logs'));
     end
+    
+    % open a log file
     logfile = fopen('logs/log.txt','a');
     rawlogfile = fopen('logs/rawlog.txt','a');
 
@@ -173,10 +176,13 @@ function timerCallback(src, ~, serConn, logfile, rawlogfile)
 % called at timer frequency, reads data from serial port, processes it, and
 % saves it into the telemetry database
 
+    verbose = 2;
+
+    % catch any errors so that the ground stations continues receiving
     try
+        
     % get the userdata structure from the timer callback
 	UserData = get(src, 'UserData');
-    total_pktlen = 0;
     
     % if there are bytes to read, read them
     if(serConn.BytesAvailable > 0)
@@ -192,73 +198,62 @@ function timerCallback(src, ~, serConn, logfile, rawlogfile)
         
         % log everything received to the raw log file
         fprintf(rawlogfile,'R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
+        fprintf(rawlogfile,'%02s,',dec2hex(data));
+        fprintf(rawlogfile,'\n');
         
+        % print what was received to the command line
+        if(verbose > 1)
+            fprintf('R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
+            fprintf('%02s,',dec2hex(UserData.ByteBuffer(i)));
+            fprintf('\n');
+        end
+                    
         % append the new data to what we've read previously
         UserData.ByteBuffer = [UserData.ByteBuffer data];
         
-        % define the length of an xbee header
-        xbee_hdr_len = 6;
-
-        % look for link responses
-        link_respond = strfind(UserData.ByteBuffer, [hex2dec('08') hex2dec('03')]);
-        
-        % look for header bytes
-        pkt_loc = strfind(UserData.ByteBuffer, [hex2dec('08') hex2dec('02')]);
-        
-        % combine the results from looking for packets
-        pkt_loc = [pkt_loc link_respond];
-        
-        % if a packet was found
-        if(~isempty(pkt_loc))
+        % iterate through buffer looking for packets
+        for i = 1:length(UserData.ByteBuffer)-8
+            if(checkpacket(data(i:end)))
             
-            % take the first packet found in the buffer
-            pkt_loc = pkt_loc(1);
-            
-            fprintf('Found pkt at %d \n',pkt_loc);
-            
-            % extract the packet header
-            if(pkt_loc+xbee_hdr_len < length(UserData.ByteBuffer))
-
-                pkthdr = UserData.ByteBuffer(pkt_loc:pkt_loc+xbee_hdr_len);
+                % the location of the packet in the buffer
+                pkt_offset = i;
                 
-                % extract the packet length
-                [~, ~, ~, ~, ~, ~, PktLen] = ExtractPriHdr(pkthdr, Endian.Little);
- 
-                total_pktlen = PktLen+7-1;
-   
-                % if we've received the entire packet, process it
-                if(pkt_loc+total_pktlen < length(UserData.ByteBuffer))
- 
-                    % output it to the command line
-                    fprintf('R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
-                    fprintf(logfile,'R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
+                % extract the packet header
+                if(i+8 < length(UserData.ByteBuffer))
+                
+                    % extract the packet length from the primary header
+                    [~, ~, ~, ~, ~, ~, PktLen] = ExtractPriHdr(UserData.ByteBuffer(pkt_offset:pkt_offset+8), Endian.Little);
 
-                    for i=pkt_loc:pkt_loc+total_pktlen
-                        fprintf('%02s',dec2hex(UserData.ByteBuffer(i)));
-                        fprintf(logfile,'%02s',dec2hex(UserData.ByteBuffer(i)));
-                        if(i~=length(UserData.ByteBuffer))
-                            fprintf(',');
-                            fprintf(logfile,',');
-                        end
-                    end
-                    fprintf('\n');
-                    fprintf(logfile,'\n');
+                    total_pktlen = PktLen+7-1;
                     
-                    % extract the packet for processing
-                    pkt = UserData.ByteBuffer(pkt_loc:pkt_loc+total_pktlen);
-
-                    % remove the pkt bytes from the buffer
-                    UserData.ByteBuffer = UserData.ByteBuffer(pkt_loc+total_pktlen:end); 
-
-                    % parse the telemetry
-                    msg = parseMsg(pkt, Endian.Little);
-               
-                else 
-                    warning('timeCallback:TooShortForHeader','Not enough bytes for valid header');
+                    % if the whole packet has been read into the buffer
+                    if(pkt_offset+total_pktlen < length(UserData.ByteBuffer))
+ 
+                        % log it
+                        fprintf(logfile,'R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
+                        fprintf(logfile,'%02s,',dec2hex(UserData.ByteBuffer(pkt_offset:pkt_offset+total_pktlen)));
+                        fprintf(logfile,'\n');
+                        
+                        % extract the packet for processing
+                        pkt = UserData.ByteBuffer(pkt_offset:pkt_offset+total_pktlen);
+                        
+                        % display the packet
+                        if(verbose > 0)
+                            displayPkt(pkt);
+                        end
+                        
+                        % remove the pkt bytes from the buffer
+                        UserData.ByteBuffer = UserData.ByteBuffer(pkt_offset+total_pktlen:end); 
+                    end
                 end
-                                
+                
+                % a packet was found and was either processed or was not
+                % fully received
+                break
             end
+            
         end
+                
     end
     
     % save the bytebuffer to the timer userdata and workspace for the next

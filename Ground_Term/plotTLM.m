@@ -1,5 +1,7 @@
 function plotTLM(var_str)
-
+%
+%   DO NOT USE - needs to be reworked
+% 
     % ensure that field exists
     if(~evalin('base',sprintf('isfield(TLM,''%s'')',var_str)))
         error('plotTLM:VarDoesntExist','Field ''%s'' doesn''t exist in telemetry database',var_str)

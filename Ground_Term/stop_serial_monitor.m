@@ -1,6 +1,11 @@
 function stop_serial_monitor()
+%   shutdown the ground station
 %
+%   STOP_SERIAL_MONITOR()
+%       closes the serial monitor and the any open log files
 %
+%   Changelog:
+%   2016-06-29  SPL     Added a changelog
 %
 
     % stop and delete the timer
@@ -17,8 +22,8 @@ function stop_serial_monitor()
     end
     evalin('base','clear serConn');
     
-    % close the log file
+    % close the log files
     fclose('all');
-    evalin('base','clear logfile');
+    evalin('base','clear logfile rawlogfile');
 
 end

@@ -1,4 +1,7 @@
 function get900signal()
+%
+%   DO NOT USE - needs to be reworked
+%
 
     % get streams from base workspace
     if(~evalin('base','exist(''serConn'',''var'')'))
