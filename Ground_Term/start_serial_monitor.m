@@ -83,11 +83,12 @@ function start_serial_monitor(varargin)
         addpath(fullfile(fileparts(mfilename('fullpath')),'logs'));
     end
     logfile = fopen('logs/log.txt','a');
+    rawlogfile = fopen('logs/rawlog.txt','a');
 
     % create timer object
     t=timer;
     t.StartFcn = @initTimer;
-    t.TimerFcn = {@timerCallback, serConn, logfile};
+    t.TimerFcn = {@timerCallback, serConn, logfile, rawlogfile};
     t.StopFcn = {@closeTimer, serConn, logfile};
     t.Period   = 0.25;
     t.ExecutionMode  = 'fixedRate';
@@ -168,7 +169,7 @@ function closeTimer(~, ~, serConn, logfile)
     
 end
 
-function timerCallback(src, ~, serConn, logfile)
+function timerCallback(src, ~, serConn, logfile, rawlogfile)
 % called at timer frequency, reads data from serial port, processes it, and
 % saves it into the telemetry database
 
@@ -188,6 +189,9 @@ function timerCallback(src, ~, serConn, logfile)
         if(size(data,1) > size(data,2))
             data = data.';
         end
+        
+        % log everything received to the raw log file
+        fprintf(rawlogfile,'R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
         
         % append the new data to what we've read previously
         UserData.ByteBuffer = [UserData.ByteBuffer data];
@@ -226,8 +230,8 @@ function timerCallback(src, ~, serConn, logfile)
                 if(pkt_loc+total_pktlen < length(UserData.ByteBuffer))
  
                     % output it to the command line
-                    fprintf('R %s: ', datestr(now,'HH:MM:SS.FFF'));
-                    fprintf(logfile,'R %s: ', datestr(now,'HH:MM:SS.FFF'));
+                    fprintf('R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
+                    fprintf(logfile,'R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
 
                     for i=pkt_loc:pkt_loc+total_pktlen
                         fprintf('%02s',dec2hex(UserData.ByteBuffer(i)));
