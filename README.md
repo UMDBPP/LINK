@@ -22,6 +22,7 @@ The ground station was written in and tested with Matlab 2016a. All functions ha
 into the matlab command line to view it.
 
 To use the ground station:
+
 1. Plug the RFD900 into your computer using an FTDI cable
 2. Determine which COM port the radio is connected to (can be done via Device Manager on Windows)
 3. Use the function 'start_serial_monitor' to start the ground station
@@ -30,10 +31,12 @@ To use the ground station:
 4. Matlab will now periodically poll the serial port for new data, log it, and try to interpret it as a packet
 
 To send a command:
+
 1. Make sure the serial monitor has been started, as instructed above
 2. Use the 'sendCmd' function to send a command
 	- See the function help for calling syntax
 	
 To close the ground station:
+
 1. Use the function 'stop_serial_monitor' to close the ground station
 	- See the function help for calling syntax
