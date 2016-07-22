@@ -49,7 +49,7 @@ bool checkPacket(uint8_t byteBuffer[]);
 
 void setup() {
 	// Init serial ports:
-	debug_serial.begin(9600);
+	debug_serial.begin(250000);
 	xbee_serial.begin(9600);
 	radio_serial.begin(9600);
 
@@ -63,6 +63,7 @@ void setup() {
 	}
 
 	debug_serial.println(F("Data Parrot Initialized!"));
+  
 }
 
 void loop() {
@@ -93,9 +94,9 @@ void radio2xbee() {
 
 	// If bytes were read, print to debug:
 	if(BytesRead > 0) {
-		debug_serial.print("Read: ");
+		debug_serial.print("Read ");
 		debug_serial.print(BytesRead);
-		debug_serial.println(" Bytes from 900...");
+		debug_serial.print(" bytes from 900: ");
 
 		for(int i = 0; i < BytesinBuffer; i++) {
 			debug_serial.print(Buff_900toXbee[i],HEX);
@@ -107,9 +108,7 @@ void radio2xbee() {
 	// Search for packet sync bytes:
 	for(int i = 0; i < (BytesinBuffer - 7); i++) {
 		if(checkPacket(Buff_900toXbee + i)) { // If a packet is found in the data stream...
-			debug_serial.print("Packet Found. i = "); // ...debug print where...
-			debug_serial.println(i);
-
+      debug_serial.println();
 			debug_serial.println("900 -> XBee: "); // ...debug print the packet...
 			CCSDS_PriHdr_t header = getPrimaryHeader(Buff_900toXbee + i);
 			printPktInfo(header);
@@ -118,8 +117,8 @@ void radio2xbee() {
 			int pktLength = getPacketLength(Buff_900toXbee + i);
 			int destAPID = getAPID(Buff_900toXbee + i);
 
-			debug_serial.print("APID Found: ");
-			debug_serial.println(destAPID); // ...Debug print the APID...
+			//debug_serial.print("APID Found: ");
+			//debug_serial.println(destAPID); // ...Debug print the APID...
 
 			// ...and, if there's a full packet present in the buffer, send it.
 			if(BytesinBuffer >= pktLength + i) {
@@ -127,28 +126,28 @@ void radio2xbee() {
 					debug_serial.println("Radio -> Respond: ");
 					messageResponse();
 				} else { // If meant for other payload, forward it.
-					debug_serial.print("Sending Message to: "); // Debug print the destination and size
-					debug_serial.print(destAPID);
-					debug_serial.print(" ");
+					debug_serial.print("Sending "); // Debug print the destination and size
 					debug_serial.print(pktLength);
-					debug_serial.println(" Bytes.");
+          debug_serial.print(" byte message to ");
+					debug_serial.print(destAPID);
+					debug_serial.println(".");
 
 					// Now forward the packet:
 					_sendData(destAPID, Buff_900toXbee+i, pktLength);
 				}
 
-				// Now clear the buffer:
-				debug_serial.print("Removing ");
-				debug_serial.print(pktLength);
-				debug_serial.println(" Bytes from Buffer.");
-
 				// Shift out the bytes:
 				memcpy(Buff_900toXbee, Buff_900toXbee + i + pktLength, BytesinBuffer - pktLength - i);
 
+        // Now clear the buffer:
+        debug_serial.print("Removing ");
+        debug_serial.print(pktLength);
+        debug_serial.print(" bytes from buffer, ");
+        
 				// Update bytes in buffer counuter
 				BytesinBuffer = BytesinBuffer - pktLength - i;
-				debug_serial.print("Bytes in buffer: ");
-				debug_serial.println(BytesinBuffer);
+				debug_serial.print(BytesinBuffer);
+        debug_serial.println(" bytes remaining.");
 			}
 			break;
 		}
@@ -169,6 +168,22 @@ void xbee2radio() {
 		CCSDS_PriHdr_t header = getPrimaryHeader(ReadData);
 		printPktInfo(header);
 
+    uint8_t _SHDR = CCSDS_RD_SHDR(header);
+  uint8_t _VERS = CCSDS_RD_VERS(header);
+  uint8_t _SEQ = CCSDS_RD_SEQ(header);
+  uint8_t _LEN = CCSDS_RD_LEN(header);
+    uint8_t _APID = getAPID(ReadData);//CCSDS_RD_APID(header);
+    debug_serial.print("APID :");
+    debug_serial.print(_APID);
+    debug_serial.print(" SHDR :");
+    debug_serial.print(_SHDR);
+    debug_serial.print(" SEQ :");
+    debug_serial.print(_SEQ);
+    debug_serial.print(" LEN :");
+    debug_serial.print(_LEN);
+    debug_serial.print(" VER :");
+    debug_serial.println(_VERS);
+    
 		debug_serial.print("Sending: ");
 		for(int i = 0; i < BytesRead; i++) {
 			debug_serial.print(ReadData[i], HEX);
@@ -230,13 +245,6 @@ bool checkPacket(uint8_t byteBuffer[]) {
 	uint8_t _SHDR = CCSDS_RD_SHDR(header);
 	uint8_t _VERS = CCSDS_RD_VERS(header);
 
-	debug_serial.print("APID :");
-  	debug_serial.print(_APID);
-  	debug_serial.print(" SHDR :");
-  	debug_serial.print(_SHDR);
-  	debug_serial.print(" VER :");
-  	debug_serial.println(_VERS);
-
   	bool AP_ID_Match = false;
   	for(int i = 0; i < NUM_TRANS_APIDS; i++) {
   		if(_APID == Transmitted_AP_IDs[i]) {
@@ -246,9 +254,19 @@ bool checkPacket(uint8_t byteBuffer[]) {
   	}
 
   	if(AP_ID_Match && _SHDR && !_VERS) {
-  		debug_serial.println("Valid Packet!");
+  		debug_serial.print("Valid Packet: ");
   		return true;
   	}
-
+   else{
+      debug_serial.print("Invalid Packet: ");
+   }
+   
+    debug_serial.print("APID :");
+    debug_serial.print(_APID);
+    debug_serial.print(" SHDR :");
+    debug_serial.print(_SHDR);
+    debug_serial.print(" VER :");
+    debug_serial.println(_VERS);
+    
   	return false;
 }
