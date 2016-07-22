@@ -21,9 +21,15 @@ function flag = checkpacket(varargin)
     addOptional(p,'verbose',1,@isnumeric);
     parse(p,varargin{:});
 
+    % don't run if the array is too short
+    if(length(p.Results.byte_buffer) < 8)
+        flag = false;
+        return
+    end
+    
     % assume that this is the beginning of a packet, extract the APID and SHDR flag
     [APID, SecHdr, PktType, CCSDSVer, SeqCnt, SegFlag, PktLen] = ExtractPriHdr(p.Results.byte_buffer, Endian.Little);
-    
+
     % check if the APID matches 
     % FIXME: check against enumeration
     if(ismember(APID,1:5) )
@@ -35,7 +41,7 @@ function flag = checkpacket(varargin)
     % check if all conditions are met
     if(AP_ID_Match && SecHdr && ~CCSDSVer) 
         if(p.Results.verbose > 0)
-            fprintf('PACKET!');
+            fprintf('PACKET! \n');
         end
         flag = true;
     else

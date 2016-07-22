@@ -102,6 +102,7 @@ function start_serial_monitor(varargin)
     assignin('base','timer_obj',t);
     assignin('base','serConn',serConn);
     assignin('base','logfile',logfile);
+    assignin('base','net',init_network());
 end
 
 function ecallback(~, ~, serConn, logfile)
@@ -178,6 +179,8 @@ function timerCallback(src, ~, serConn, logfile, rawlogfile)
 
     verbose = 2;
 
+    net = evalin('base','net');
+    
     % catch any errors so that the ground stations continues receiving
     try
         
@@ -198,13 +201,18 @@ function timerCallback(src, ~, serConn, logfile, rawlogfile)
         
         % log everything received to the raw log file
         fprintf(rawlogfile,'R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
-        fprintf(rawlogfile,'%02s,',dec2hex(data));
+        for k = 1:length(data)
+            fprintf(rawlogfile,'%02s,',dec2hex(data(k)));
+        end
         fprintf(rawlogfile,'\n');
         
         % print what was received to the command line
         if(verbose > 1)
             fprintf('R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
-            fprintf('%02s,',dec2hex(UserData.ByteBuffer(i)));
+            for k = 1:length(data)
+                fprintf('%02s,',dec2hex(data(k)));
+            end
+%             fprintf('%02s,',dec2hex(UserData.ByteBuffer));
             fprintf('\n');
         end
                     
@@ -213,7 +221,7 @@ function timerCallback(src, ~, serConn, logfile, rawlogfile)
         
         % iterate through buffer looking for packets
         for i = 1:length(UserData.ByteBuffer)-8
-            if(checkpacket(data(i:end)))
+            if(checkpacket(UserData.ByteBuffer(i:end)))
             
                 % the location of the packet in the buffer
                 pkt_offset = i;
@@ -238,9 +246,26 @@ function timerCallback(src, ~, serConn, logfile, rawlogfile)
                         pkt = UserData.ByteBuffer(pkt_offset:pkt_offset+total_pktlen);
                         
                         % display the packet
-                        if(verbose > 0)
-                            displayPkt(pkt);
-                        end
+%                         if(verbose > 0)
+%                             displayPkt(pkt);
+%                         end
+                        
+                        % get names of payloads
+%                         payloads = fieldnames(net);
+%                         APID = ExtractPriHdr(pkt, Endian.Little);
+
+                        % loop through payloads
+%                         for j = 1:length(payloads)
+                            % if this packet is recognized
+%                             if(APID == net.(payloads{j}).apid)
+                                % call the appropriate processing function
+%                                 net.scorch.procfcn(pkt)
+%                             end
+%                         end
+                        
+%                         if j == length(payloads)
+%                             fprintf('Unrecognized packet with APID %d\n',APID);
+%                         end
                         
                         % remove the pkt bytes from the buffer
                         UserData.ByteBuffer = UserData.ByteBuffer(pkt_offset+total_pktlen:end); 
