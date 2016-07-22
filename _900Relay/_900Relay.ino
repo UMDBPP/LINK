@@ -10,7 +10,6 @@
 // Compile time constants:
 #define PKT_MAX_LEN 200
 #define NUM_TRANS_APIDS 5
-#define TLMMask_LINKSendCtr   0x02000000  // 2^26
 
 // Serial object aliases:
 #define debug_serial Serial
@@ -38,8 +37,6 @@ int PktLen = 0;
 int BytesinBuffer = 0;
 int XbeeBytesRead = 0;
 uint32_t SendCtr = 0;
-
-uint32_t tlmctrl = 0xFFFFFFFF & TLMMask_LINKSendCtr;
 
 // Function prototypes
 void radio2xbee();
