@@ -227,16 +227,16 @@ function timerCallback(src, ~, serConn, logfile, rawlogfile)
                 pkt_offset = i;
                 
                 % extract the packet header
-                if(i+8 < length(UserData.ByteBuffer))
-                
+                if( i+8 < length(UserData.ByteBuffer))
+
                     % extract the packet length from the primary header
                     [~, ~, ~, ~, ~, ~, PktLen] = ExtractPriHdr(UserData.ByteBuffer(pkt_offset:pkt_offset+8), Endian.Little);
 
                     total_pktlen = PktLen+7-1;
-                    
+
                     % if the whole packet has been read into the buffer
-                    if(pkt_offset+total_pktlen < length(UserData.ByteBuffer))
- 
+                    if(pkt_offset+total_pktlen <= length(UserData.ByteBuffer))
+                    
                         % log it
                         fprintf(logfile,'R %s: ', datestr(now,'yyyy-mm-dd HH:MM:SS.FFF'));
                         fprintf(logfile,'%02s,',dec2hex(UserData.ByteBuffer(pkt_offset:pkt_offset+total_pktlen)));
@@ -246,26 +246,27 @@ function timerCallback(src, ~, serConn, logfile, rawlogfile)
                         pkt = UserData.ByteBuffer(pkt_offset:pkt_offset+total_pktlen);
                         
                         % display the packet
-%                         if(verbose > 0)
-%                             displayPkt(pkt);
-%                         end
+                        if(verbose > 0)
+                            displayPkt(pkt);
+                        end
                         
                         % get names of payloads
-%                         payloads = fieldnames(net);
-%                         APID = ExtractPriHdr(pkt, Endian.Little);
+                        defined_pkts = fieldnames(net);
+                        APID = ExtractPriHdr(pkt, Endian.Little);
 
                         % loop through payloads
-%                         for j = 1:length(payloads)
+                        for j = 1:length(defined_pkts)
                             % if this packet is recognized
-%                             if(APID == net.(payloads{j}).apid)
+                            if(ismember(APID, net.(defined_pkts{j}).apid))
                                 % call the appropriate processing function
-%                                 net.scorch.procfcn(pkt)
-%                             end
-%                         end
-                        
-%                         if j == length(payloads)
-%                             fprintf('Unrecognized packet with APID %d\n',APID);
-%                         end
+                                net.(defined_pkts{j}).procfcn(pkt);
+                                break
+                            end
+                        end
+
+                        if j == length(defined_pkts)
+                            fprintf('Unrecognized packet with APID %d\n',APID);
+                        end
                         
                         % remove the pkt bytes from the buffer
                         UserData.ByteBuffer = UserData.ByteBuffer(pkt_offset+total_pktlen:end); 

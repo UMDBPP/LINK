@@ -32,7 +32,7 @@ function flag = checkpacket(varargin)
 
     % check if the APID matches 
     % FIXME: check against enumeration
-    if(ismember(APID,1:5) )
+    if(ismember(APID,1:20) )
         AP_ID_Match = true;
     else
         AP_ID_Match = false;

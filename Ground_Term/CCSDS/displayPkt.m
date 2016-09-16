@@ -20,7 +20,7 @@ function displayPkt(varargin)
     [APID, SecHdr, PktType, CCSDSVer, SeqCnt, SegFlag, PktLen] = ExtractPriHdr(p.Results.pkt(1:6), Endian.Little);
     
     % print the primary header
-    fprintf('APID: %d, SHdr: %d, PktType: %d, SeqCnt: %d, SegFlag: %d, PktLen: %d \n',...
+    fprintf('APID: %d, SHdr: %d, PktType: %d, CCSDSVer %d, SeqCnt: %d, SegFlag: %d, PktLen: %d \n',...
         APID, SecHdr, PktType, CCSDSVer, SeqCnt, SegFlag, PktLen);
     
     % process the secondary header depending on what type of packet it is
@@ -29,17 +29,21 @@ function displayPkt(varargin)
         [FcnCode, Checksum, Reserved] = ExtractCmdSecHdr(p.Results.pkt(7:8), Endian.Little);
         fprintf('FcnCode: %d, Checksum: %d, Reserved: %d \n',...
             FcnCode, Checksum, Reserved);
-        param_start = 8;
+        param_start = 9;
     else
         % extract the telemetry secondary header fields
         Time = ExtractTlmSecHdr(p.Results.pkt(7:12), Endian.Little);
         fprintf('Time: %d \n',Time);
-        param_start = 12;
+        param_start = 13;
     end
     
     % print the packet payload
-    if(length(p.Results.pkt) > param_start)
-        fprintf('Payload: %02s,',dec2hex(p.Results.pkt(param_start:end)));
+    if(length(p.Results.pkt)+1 > param_start)
+        fprintf('Payload: ');
+        for i = param_start:length(p.Results.pkt)
+            fprintf('%s, ',dec2hex(p.Results.pkt(i)));
+        end
+        fprintf('\n');
     end
     
 end

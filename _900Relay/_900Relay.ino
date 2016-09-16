@@ -9,7 +9,7 @@
 
 // Compile time constants:
 #define PKT_MAX_LEN 200
-#define NUM_TRANS_APIDS 5
+#define NUM_TRANS_APIDS 7
 
 // Serial object aliases:
 #define debug_serial Serial
@@ -25,7 +25,7 @@ uint16_t XBee_MY_Addr = 0x0002; // XBee address for this payload
 uint16_t XBee_PAN_ID = 0x0B0B; // XBee PAN address (must be the same for all xbees)
 
 // Comms stuff:
-uint16_t Transmitted_AP_IDs[NUM_TRANS_APIDS] = {1, 2, 3, 4, 5}; // List of available AP_IDs
+uint16_t Transmitted_AP_IDs[NUM_TRANS_APIDS] = {1, 2, 3, 4, 5, 10, 15}; // List of available AP_IDs
 uint8_t Ground_AP_ID = 0x01; // AP ID for ground station
 const uint8_t SyncByte[2] = {0x18, 0x01};
 const uint8_t RespondSyncByte[2] = {0x18, 0x02};

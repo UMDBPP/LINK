@@ -1,7 +1,10 @@
 function net = init_network()
 
-    net.scorch.apid = apid.scorch;
-    net.scorch.procfcn = @scorch_process;
+    net.scorchstatus.apid = 10;
+    net.scorchstatus.procfcn = @scorch_process;
+    
+    net.cutdownstatus.apid = 11;
+    net.cutdownstatus.procfcn = @cutdown_process;
 
     net.link.apid = uint8(apid.link);
     net.link.procfcn = @link_process;
