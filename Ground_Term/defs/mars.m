@@ -1,4 +1,4 @@
-classdef cutdown < uint8
+classdef mars < uint8
    enumeration
       armstatus (1)
       arm  (10)
