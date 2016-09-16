@@ -7,6 +7,6 @@ classdef apid < uint8
       link (2)
       scorch  (3)
       badass (4)
-      cutdown (5)
+      mars (5)
    end
 end
