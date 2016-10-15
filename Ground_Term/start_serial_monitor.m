@@ -41,7 +41,7 @@ function start_serial_monitor(varargin)
     % define strings corresponding to serial ports
     if ismac()
         serList = [...
-            {'/dev/tty.usbserial~A403A360'} ; ... % on nassif's computer
+            {'/dev/tty.usbserial-A403A36O'} ; ... % on nassif's computer
             ];
     elseif isunix()
         serList = [...

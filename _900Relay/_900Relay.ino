@@ -166,9 +166,9 @@ void xbee2radio() {
 		printPktInfo(header);
 
     uint8_t _SHDR = CCSDS_RD_SHDR(header);
-  uint8_t _VERS = CCSDS_RD_VERS(header);
-  uint8_t _SEQ = CCSDS_RD_SEQ(header);
-  uint8_t _LEN = CCSDS_RD_LEN(header);
+    uint8_t _VERS = CCSDS_RD_VERS(header);
+    uint8_t _SEQ = CCSDS_RD_SEQ(header);
+    uint8_t _LEN = CCSDS_RD_LEN(header);
     uint8_t _APID = getAPID(ReadData);//CCSDS_RD_APID(header);
     debug_serial.print("APID :");
     debug_serial.print(_APID);
@@ -201,18 +201,18 @@ void messageResponse() {
 
 	// Populate primary header fields:
 	CCSDS_WR_APID(PrimaryHeader,Ground_AP_ID);
-  	CCSDS_WR_SHDR(PrimaryHeader,1);
-  	CCSDS_WR_TYPE(PrimaryHeader,0);
-  	CCSDS_WR_VERS(PrimaryHeader,0);
-  	CCSDS_WR_SEQ(PrimaryHeader,SendCtr);
-  	CCSDS_WR_SEQFLG(PrimaryHeader,0x03);
+  CCSDS_WR_SHDR(PrimaryHeader,1);
+  CCSDS_WR_TYPE(PrimaryHeader,0);
+  CCSDS_WR_VERS(PrimaryHeader,0);
+  CCSDS_WR_SEQ(PrimaryHeader,SendCtr);
+  CCSDS_WR_SEQFLG(PrimaryHeader,0x03);
 
 	CCSDS_TlmSecHdr_t TlmHeader = *(CCSDS_TlmSecHdr_t*)(responseData + sizeof(PrimaryHeader)); // Create the secondary header
 	payloadSize += sizeof(TlmHeader);
 
 	// Populate the secondary header fields:
 	CCSDS_WR_SEC_HDR_SEC(TlmHeader,millis()/1000L);
-  	CCSDS_WR_SEC_HDR_SUBSEC(TlmHeader,millis() % 1000L);
+  CCSDS_WR_SEC_HDR_SUBSEC(TlmHeader,millis() % 1000L);
 
 	payloadSize = addIntToTlm(SendCtr, responseData, payloadSize); // Add counter of sent packets to message
 
@@ -242,28 +242,28 @@ bool checkPacket(uint8_t byteBuffer[]) {
 	uint8_t _SHDR = CCSDS_RD_SHDR(header);
 	uint8_t _VERS = CCSDS_RD_VERS(header);
 
-  	bool AP_ID_Match = false;
-  	for(int i = 0; i < NUM_TRANS_APIDS; i++) {
-  		if(_APID == Transmitted_AP_IDs[i]) {
-  			AP_ID_Match = true;
-  			break;
-  		}
+  bool AP_ID_Match = false;
+  for(int i = 0; i < NUM_TRANS_APIDS; i++) {
+  	if(_APID == Transmitted_AP_IDs[i]) {
+  		AP_ID_Match = true;
+  		break;
   	}
+  }
 
-  	if(AP_ID_Match && _SHDR && !_VERS) {
-  		debug_serial.print("Valid Packet: ");
-  		return true;
-  	}
-   else{
-      debug_serial.print("Invalid Packet: ");
-   }
+  if(AP_ID_Match && _SHDR && !_VERS) {
+  	debug_serial.print("Valid Packet: ");
+  	return true;
+  }
+  else{
+     debug_serial.print("Invalid Packet: ");
+  }
    
-    debug_serial.print("APID :");
-    debug_serial.print(_APID);
-    debug_serial.print(" SHDR :");
-    debug_serial.print(_SHDR);
-    debug_serial.print(" VER :");
-    debug_serial.println(_VERS);
+  debug_serial.print("APID :");
+  debug_serial.print(_APID);
+  debug_serial.print(" SHDR :");
+  debug_serial.print(_SHDR);
+  debug_serial.print(" VER :");
+  debug_serial.println(_VERS);
     
-  	return false;
+  return false;
 }
