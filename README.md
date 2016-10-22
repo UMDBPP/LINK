@@ -1,42 +1,44 @@
 # 900Relay
 Code for the Link payload which relays messages between xbee and 900MHz radio
 
+The purpose of 900relay (LINK) is to act as an intermediate between the ground and payloads 
+and route commands and telemetry to their repective desintations. LINK also logs all data
+which passes through it locally to allow post-mission review of data at to mitigate the risk
+of losing data during dropouts of the 900Mhz radio system which acts as the link to the ground.
+Inter-payload communication is handled by xbee radios.
 
-Using the ground station:
+The 900MHz radios (henceforth: radio) is a transparent interface, data sent to one unit is
+transmitted and output by the radio on the other end of the commincation link. This system
+is capable of transmitting arbitrary data and imposes no limits on the structure of the data.
 
-The ground station is written in Matlab, which is acting as a serial monitor and performs the following functions:
-* Logs ALL data received by the radio to a file (rawlog.txt)
-* Logs all packets sent to and received by the radio to a file (log.txt)
-* Forms CCSDS packets using a number of helper functions to make human interaction easier
-* Parses received packets and stores the telemetry in a database
-* Plots the telemetry stored in the database
+The xbees are being used in API mode, which means that interactions with the radios happen 
+within the confines of an packet-based API. This interface allows superior control over data
+handling than a transparent interface and is necessary for the peer-network model which allows
+any payload to communicate with any other payload.
 
-The ground station was written in and tested with Matlab 2016a. All functions have help text defined. Type 
-    ```
-	help <function name>
-	```
-	or 
-	```
-	doc <function name>
-    ```
-into the matlab command line to view it.
+All data handled by link is expected to be in the form of CCSDS command or telemetry packets,
+which allows the implementation of a standard interface and handling logic for the packets. 
+Data received from the radios and xbees will be interpreted as CCSDS packets and responsed to 
+accordingly (ie, commands will be processed and responded to). 
 
-To use the ground station:
-
-1. Plug the RFD900 into your computer using an FTDI cable
-2. Determine which COM port the radio is connected to (can be done via Device Manager on Windows)
-3. Use the function 'start_serial_monitor' to start the ground station
-    - Provide the COM port the radio is connected to as the argument
-    - See the function help for using baud rates other than 9600
-4. Matlab will now periodically poll the serial port for new data, log it, and try to interpret it as a packet
-
-To send a command:
-
-1. Make sure the serial monitor has been started, as instructed above
-2. Use the 'sendCmd' function to send a command
-	- See the function help for calling syntax
-	
-To close the ground station:
-
-1. Use the function 'stop_serial_monitor' to close the ground station
-	- See the function help for calling syntax
+LINK's command interface was designed to allow for the ability for an external payload to 
+exercise full control over how LINK would handle the data sent to it. The following commands
+are related to the LINK interface:
+  NoOp - No operation, only increments counters as a test of the command interface
+  RESETCTR - Resets the LINK interface and status counters
+  
+The following commands allow explict routing of a message to its intended target:
+  GND_HK_REQ - Requests that a housekeeping pkt containing status info be sent to the ground
+  XB_HK_REW - Requests that a housekeeping pkt containing status info be sent to a specified xbee address
+  GND_FWDMSG - Requests that the contained data be forwarded to the ground
+  XB_FWDMSG - Requests that the contained data be forwarded to the specified xbee address
+  
+In addition to these commands, LINK uses a filter table to determine if a received packet 
+should be forwarded to the ground. Although this breaks the paradigm that all actions should 
+be commanded (to make tracing cause and effect in debugging easier), it is too cumbersome to 
+require every external payload that wishes to relay data to the ground (which is LINK's primary purpose) 
+to wrap their data in a GND_FWDMSG command. The filter table is a list of APIDs (an field in a CCSDS
+packet used to identify the type of packet) to determine if a message should be automatically forwarded to
+the ground. The following commands are available to manage the filter table:
+  TLMFLTRBL - Requests that the current filter table be dumped to the ground
+  SETFLTRTBLIDX - Request that a specified index of the filter table be set to a specified value
