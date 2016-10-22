@@ -24,14 +24,14 @@ accordingly (ie, commands will be processed and responded to).
 LINK's command interface was designed to allow for the ability for an external payload to 
 exercise full control over how LINK would handle the data sent to it. The following commands
 are related to the LINK interface:
-  NoOp - No operation, only increments counters as a test of the command interface
-  RESETCTR - Resets the LINK interface and status counters
+* NoOp - No operation, only increments counters as a test of the command interface
+* RESETCTR - Resets the LINK interface and status counters
   
 The following commands allow explict routing of a message to its intended target:
-  GND_HK_REQ - Requests that a housekeeping pkt containing status info be sent to the ground
-  XB_HK_REW - Requests that a housekeeping pkt containing status info be sent to a specified xbee address
-  GND_FWDMSG - Requests that the contained data be forwarded to the ground
-  XB_FWDMSG - Requests that the contained data be forwarded to the specified xbee address
+* GND_HK_REQ - Requests that a housekeeping pkt containing status info be sent to the ground
+* XB_HK_REW - Requests that a housekeeping pkt containing status info be sent to a specified xbee address
+* GND_FWDMSG - Requests that the contained data be forwarded to the ground
+* XB_FWDMSG - Requests that the contained data be forwarded to the specified xbee address
   
 In addition to these commands, LINK uses a filter table to determine if a received packet 
 should be forwarded to the ground. Although this breaks the paradigm that all actions should 
@@ -40,5 +40,5 @@ require every external payload that wishes to relay data to the ground (which is
 to wrap their data in a GND_FWDMSG command. The filter table is a list of APIDs (an field in a CCSDS
 packet used to identify the type of packet) to determine if a message should be automatically forwarded to
 the ground. The following commands are available to manage the filter table:
-  TLMFLTRBL - Requests that the current filter table be dumped to the ground
-  SETFLTRTBLIDX - Request that a specified index of the filter table be set to a specified value
+* TLMFLTRBL - Requests that the current filter table be dumped to the ground
+* SETFLTRTBLIDX - Request that a specified index of the filter table be set to a specified value
