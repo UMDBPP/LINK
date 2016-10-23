@@ -1,4 +1,4 @@
-# 900Relay
+# LINK
 Code for the Link payload which relays messages between xbee and 900MHz radio
 
 The purpose of 900relay (LINK) is to act as an intermediate between the ground and payloads 
