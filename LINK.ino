@@ -1,7 +1,7 @@
 /*
- * 900Relay code
+ * LINK code
  * 
- * The purpose of 900relay (LINK) is to act as an intermediate between the ground and payloads 
+ * The purpose of LINK is to act as an intermediate between the ground and payloads 
  * and route commands and telemetry to their repective desintations. LINK also logs all data
  * which passes through it locally to allow post-mission review of data at to mitigate the risk
  * of losing data during dropouts of the 900Mhz radio system which acts as the link to the ground.
@@ -349,7 +349,7 @@ void command_response(uint8_t data[], uint8_t data_len) {
 
   // get the APID (the field which identifies the type of packet)
   uint8_t _APID = getAPID(data);
-
+    
   // check if the data is a command packet with the LINK command APID
   if(getPacketType(data) && _APID == 100){
 
@@ -359,7 +359,8 @@ void command_response(uint8_t data[], uint8_t data_len) {
     uint8_t HK_Pkt_Buff[36];
     uint8_t FLTR_TBL_Buff[32];
     uint16_t tbl_val = 0;
-    uint8_t pkt_pos = 8;
+    uint8_t pkt_pos = 7;
+    uint8_t tbl_idx = 0;
 
     // respond to the command depending on what type of command it is
     switch(FcnCode){
@@ -431,13 +432,6 @@ void command_response(uint8_t data[], uint8_t data_len) {
         // to-be-forwarded is)
         pktLength = getPacketLength(data);
         debug_serial.println(destAddr);
-
-        debug_serial.print("Forwarding: ");
-        for(int i = pkt_pos; i <= pktLength; i++){
-          debug_serial.print(data[i], HEX);
-          debug_serial.print(", ");
-        }
-        debug_serial.println();
         
         // send the data and log it
         // don't sent the CCSDS header we received (8 bytes) or the destination address (1 byte)
@@ -506,16 +500,21 @@ void command_response(uint8_t data[], uint8_t data_len) {
       case 45:
          // Requests that the specified index of the filter table be updated with the specified value
 
-         debug_serial.println("Received TlmFilterTable Cmd");
+         debug_serial.print("Received SetFilterTableIdx Cmd");
 
          // extract index of element to be set
-         pkt_pos = extractFromTlm(tbl_val, data, pkt_pos);
+         pkt_pos = extractFromTlm(tbl_idx, data, 8);
 
          // extract value of the element
          extractFromTlm(tbl_val, data, pkt_pos);
 
+         debug_serial.print(" for idx ");
+         debug_serial.print(tbl_idx);
+         debug_serial.print(" and val ");
+         debug_serial.println(tbl_val);
+         
          // update the filter table
-         filter_table[data[9]] = tbl_val;
+         filter_table[tbl_idx] = tbl_val;
 
         // increment the cmd executed counter
         CmdExeCtr++;
@@ -532,7 +531,7 @@ void command_response(uint8_t data[], uint8_t data_len) {
     
   }
   else{
-    debug_serial.print("Unrecognized apid ");
+    debug_serial.print("Unrecognized apid 0x");
     debug_serial.println(_APID, HEX);
   }
 }
@@ -611,7 +610,7 @@ uint16_t create_fltrtbl_pkt(uint8_t FLTR_TBL_Buff[]){
   setTlmTimeSubSec(FLTR_TBL_Buff, millis() % 1000L);
 
   // add elements of filter table to the packet
-  for(int i = 0; i <= FILT_TBL_LEN; i++){
+  for(int i = 0; i < FILT_TBL_LEN; i++){
     payloadSize = addIntToTlm(filter_table[i], FLTR_TBL_Buff, payloadSize); // Add the value of the table to message
   }
  
@@ -647,6 +646,7 @@ void radio_send_and_log(uint8_t data[], uint8_t data_len){
  */
 
   // print the data to the radio serial
+  debug_serial.print("Radio sending: ");
   for(int i = 0; i < data_len; i++) {
       debug_serial.print(data[i], HEX);
       debug_serial.print(", ");
@@ -672,6 +672,13 @@ void xbee_send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len){
  
   // send the data via xbee
   _sendData(dest_addr, data, sizeof(data));
+
+  debug_serial.print("Forwarding: ");
+  for(int i = 0; i <= data_len; i++){
+    debug_serial.print(data[i], HEX);
+    debug_serial.print(", ");
+  }
+  debug_serial.println();
 
   // log the sent data
   logPkt(xbeeLogFile, data, sizeof(data), 0);
