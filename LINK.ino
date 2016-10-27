@@ -348,7 +348,7 @@ void command_response(uint8_t data[], uint8_t data_len) {
    */
 
   // get the APID (the field which identifies the type of packet)
-  uint8_t _APID = getAPID(data);
+  uint16_t _APID = getAPID(data);
     
   // check if the data is a command packet with the LINK command APID
   if(getPacketType(data) && _APID == 100){
@@ -423,7 +423,7 @@ void command_response(uint8_t data[], uint8_t data_len) {
          *   Data (rest of packet)
          */
          
-        debug_serial.print("Received XbeeFwdMessage Cmd to addr ");
+        debug_serial.print("Received XbeeFwdMessage Cmd of length ");
 
         // extract the desired xbee address from the packet
         pkt_pos = extractFromTlm(destAddr, data, 8);
@@ -431,6 +431,8 @@ void command_response(uint8_t data[], uint8_t data_len) {
         // extract the length of the command received (used for determining how long the data
         // to-be-forwarded is)
         pktLength = getPacketLength(data);
+        debug_serial.print(pktLength-pkt_pos);
+        debug_serial.print(" to addr ");
         debug_serial.println(destAddr);
         
         // send the data and log it
@@ -671,7 +673,7 @@ void xbee_send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len){
  */
  
   // send the data via xbee
-  _sendData(dest_addr, data, sizeof(data));
+  _sendData(dest_addr, data, data_len);
 
   debug_serial.print("Forwarding: ");
   for(int i = 0; i <= data_len; i++){
