@@ -355,6 +355,13 @@ void command_response(uint8_t data[], uint8_t data_len) {
   // check if the data is a command packet with the LINK command APID
   if(getPacketType(data) && _APID == 100){
 
+    if(validateChecksum(data)){
+      debug_seral.println("Checksum matches!");
+    }
+    else{
+      debug_seral.println("Checksum doesn't match!");
+    }
+
     uint8_t FcnCode = getCmdFunctionCode(data);
     uint8_t destAddr = 0;
     uint16_t pktLength = 0;
@@ -566,8 +573,8 @@ uint16_t create_HK_pkt(uint8_t HK_Pkt_Buff[]){
   payloadSize += sizeof(CCSDS_TlmSecHdr_t);
 
   // Populate the secondary header fields:
-  setTlmTimeSec(HK_Pkt_Buff, millis()/1000L);
-  setTlmTimeSubSec(HK_Pkt_Buff, millis() % 1000L);
+  setTlmTimeSec(HK_Pkt_Buff, now.unixtime()/1000L);
+  setTlmTimeSubSec(HK_Pkt_Buff, now.unixtime() % 1000L);
 
   // Add counter values to the pkt
   payloadSize = addIntToTlm(CmdExeCtr, HK_Pkt_Buff, payloadSize); // Add counter of sent packets to message
@@ -610,8 +617,8 @@ uint16_t create_fltrtbl_pkt(uint8_t FLTR_TBL_Buff[]){
   payloadSize += sizeof(CCSDS_TlmSecHdr_t);
 
   // Populate the secondary header fields:
-  setTlmTimeSec(FLTR_TBL_Buff, millis()/1000L);
-  setTlmTimeSubSec(FLTR_TBL_Buff, millis() % 1000L);
+  setTlmTimeSec(HK_Pkt_Buff, now.unixtime()/1000L);
+  setTlmTimeSubSec(HK_Pkt_Buff, now.unixtime() % 1000L);
 
   // add elements of filter table to the packet
   for(int i = 0; i < FILT_TBL_LEN; i++){
