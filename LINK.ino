@@ -46,6 +46,7 @@
  */
    
 //// Includes:
+#include <avr/wdt.h>
 #include <Wire.h>
 #include <SPI.h>
 #include "RTClib.h"
@@ -109,9 +110,11 @@ void radio_send_and_log(uint8_t data[], uint8_t data_len);
 void xbee_send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len);
 void logXbeePkt(File file, uint8_t data[], uint8_t len, uint8_t received_flg);
 void print_time(File file);
+void watchdogSetup();
 
 // Other variables
 uint16_t cycles_since_read = 0;
+uint8_t reboot_flag = 0;
 
 void setup() {
   /* setup()
@@ -123,7 +126,8 @@ void setup() {
    *   SD card
    *   Log files
    */
-   
+  wdt_disable();
+  wdt_enable(WDTO_4S);
   //// Init serial ports:
   /*  aliases defined above are used to reduce confusion about which serial
    *    is connected to what interface
@@ -222,6 +226,11 @@ void loop() {
    *  Reads from radio and processes any data
    */
 
+  // reset the watchdog timer
+  if(!reboot_flag){
+    wdt_reset();
+  }
+   
   // initalize a counter to record how many bytes were read this iteration
   int BytesRead = 0;
 
@@ -356,10 +365,10 @@ void command_response(uint8_t data[], uint8_t data_len) {
   if(getPacketType(data) && _APID == 100){
 
     if(validateChecksum(data)){
-      debug_seral.println("Checksum matches!");
+      debug_serial.println("Checksum matches!");
     }
     else{
-      debug_seral.println("Checksum doesn't match!");
+      debug_serial.println("Checksum doesn't match!");
     }
 
     uint8_t FcnCode = getCmdFunctionCode(data);
@@ -530,7 +539,20 @@ void command_response(uint8_t data[], uint8_t data_len) {
         // increment the cmd executed counter
         CmdExeCtr++;
         break;
-                
+        
+      // Reboot
+      case 99:
+        // Requests that Link reboot
+
+        debug_serial.println("Received Reboot Cmd");
+
+        // set the reboot flag to true
+        reboot_flag = 1;
+
+        // increment the cmd executed counter
+        CmdExeCtr++;
+        break;    
+              
       // unrecognized fcn code
       default:
         debug_serial.print("unrecognized fcn code ");
@@ -572,6 +594,9 @@ uint16_t create_HK_pkt(uint8_t HK_Pkt_Buff[]){
   // add length of secondary header
   payloadSize += sizeof(CCSDS_TlmSecHdr_t);
 
+  // get the current time from the RTC
+  DateTime now = rtc.now();
+  
   // Populate the secondary header fields:
   setTlmTimeSec(HK_Pkt_Buff, now.unixtime()/1000L);
   setTlmTimeSubSec(HK_Pkt_Buff, now.unixtime() % 1000L);
@@ -616,9 +641,12 @@ uint16_t create_fltrtbl_pkt(uint8_t FLTR_TBL_Buff[]){
   // add length of secondary header
   payloadSize += sizeof(CCSDS_TlmSecHdr_t);
 
+  // get the current time from the RTC
+  DateTime now = rtc.now();
+  
   // Populate the secondary header fields:
-  setTlmTimeSec(HK_Pkt_Buff, now.unixtime()/1000L);
-  setTlmTimeSubSec(HK_Pkt_Buff, now.unixtime() % 1000L);
+  setTlmTimeSec(FLTR_TBL_Buff, now.unixtime()/1000L);
+  setTlmTimeSubSec(FLTR_TBL_Buff, now.unixtime() % 1000L);
 
   // add elements of filter table to the packet
   for(int i = 0; i < FILT_TBL_LEN; i++){
