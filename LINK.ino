@@ -250,8 +250,10 @@ void loop() {
       
       // forward and log the packet
       radio_send_and_log(ReadData, BytesRead);
-      debug_serial.print("Recieved and forwarded packet in filter table with APID: ");
-      debug_serial.print(getAPID(ReadData));
+      debug_serial.print("Recieved and forwarded packet of length ");
+      debug_serial.print(BytesRead);
+      debug_serial.print(" in filter table with APID: ");
+      debug_serial.println(getAPID(ReadData));
       
     }
     // if the data isn't forwarded, process it as a command
