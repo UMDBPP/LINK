@@ -28,32 +28,42 @@
  *   RESETCTR - Resets the LINK interface and status counters
  *   
  * The following commands allow explict routing of a message to its intended target:
- *   GND_HK_REQ - Requests that a housekeeping pkt containing status info be sent to the ground
- *   XB_HK_REW - Requests that a housekeeping pkt containing status info be sent to a specified xbee address
- *   GND_FWDMSG - Requests that the contained data be forwarded to the ground
- *   XB_FWDMSG - Requests that the contained data be forwarded to the specified xbee address
+ *   HK_REQ - Requests that a housekeeping pkt containing status info be sent to the indicated address
+ *   FWDMSG - Requests that the contained data be forwarded to the indicated address
  *   
  * In addition to these commands, LINK uses a filter table to determine if a received packet 
  * should be forwarded to the ground. Although this breaks the paradigm that all actions should 
  * be commanded (to make tracing cause and effect in debugging easier), it is too cumbersome to 
  * require every external payload that wishes to relay data to the ground (which is LINK's primary purpose) 
- * to wrap their data in a GND_FWDMSG command. The filter table is a list of APIDs (an field in a CCSDS
+ * to wrap their data in a FWDMSG command. The filter table is a list of APIDs (a field in a CCSDS
  * packet used to identify the type of packet) to determine if a message should be automatically forwarded to
  * the ground. The following commands are available to manage the filter table:
  *   TLMFLTRBL - Requests that the current filter table be dumped to the ground
  *   SETFLTRTBLIDX - Request that a specified index of the filter table be set to a specified value
  * 
+ * LINK also has the ability to be reset remotely through the command:
+ *   REBOOT - Requests that LINK reboot itself via a watchdog timer
+ *   
+ * In addition to its data routing functionality, LINK also takes advantage of balloonduino's 
+ * on-board sensors to monitor its status and the environment around it. All of this data is logged 
+ * and the following commands can be used to request data from LINK:
+ *   REQ_ENV - Requests LINK send current temperature/pressure/humidity data
+ *   REQ_PWR - Requests LINK send current power/battery status data
+ *   REQ_IMU - Requests LINK send current accel/gryo/mag data
+ *   
+ *   See the COSMOS repo (https://github.com/UMDBPP/COSMOS) for full format of the commands described above.
+ * 
  */
    
 //// Includes:
-#include <avr/wdt.h>
+#include <avr/wdt.h>  // watchdog timer
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
 #include "Adafruit_MCP9808.h"
-#include "RTClib.h"
+#include "RTClib.h"  // RTC and SoftRTC
 #include <Adafruit_BME280.h>
 #include <SD.h>
 #include <Adafruit_ADS1015.h>
@@ -63,6 +73,7 @@
 #include <SSC.h>
 
 //// Enumerations
+// logging flag
 #define LOG_RCVD 1
 #define LOG_SEND 0
 
@@ -87,7 +98,7 @@
 #define LINK_REQIMU_CMD 80
 #define LINK_REBOOT_CMD 99
 
-//// Hardware objects
+//// Declare objects
 Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x29);
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
 RTC_DS1307 rtc;  // real time clock (for logging with timestamps)
@@ -125,8 +136,10 @@ uint8_t Buff_Xbeeto900[PKT_MAX_LEN];
 uint8_t Buff_Pos = 0;
 
 //// Xbee setup parameters
-uint16_t XBee_MY_Addr = 0x0002; // XBee address for this payload
+uint16_t XBee_MY_Addr = 0x0002; // XBee address for this payload 
+// DO NOT CHANGE without making corresponding change in ground system definitions
 uint16_t XBee_PAN_ID = 0x0B0B; // XBee PAN address (must be the same for all xbees)
+// DO NOT CHANGE without changing for all xbees
 
 //// Data Structures
 // imu data
@@ -175,15 +188,15 @@ uint32_t XbeeSentByteCtr = 0;
 uint16_t filter_table[FILT_TBL_LEN] = {300, 310, 320, 400, 410, 420, 600, 610, 620, 630, 640, 0, 0, 0, 0};
 
 //// Other variables
-uint16_t cycles_since_read = 0;
-uint8_t reboot_flag = 0;
+uint16_t cycles_since_radio_read = 0;
 uint32_t start_millis = 0;
 
 //// Files
-// logging files
+// interface logging files
 File xbeeLogFile;
 File radioLogFile;
 File initLogFile;
+// data logging files
 File IMULogFile;
 File ENVLogFile;
 File PWRLogFile;
@@ -192,6 +205,7 @@ File PWRLogFile;
 void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData, struct ENVData_s ENVData, struct PWRData_s PWRData);
 
 // interface
+void send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len);
 void radio_send_and_log(uint8_t data[], uint8_t data_len);
 void xbee_send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len);
 void logXbeePkt(File file, uint8_t data[], uint8_t len, uint8_t received_flg);
@@ -215,19 +229,28 @@ void log_pwr(struct PWRData_s PWRData, File PWRLogFile);
 
 // utility
 void print_time(File file);
-void watchdogSetup();
 boolean checkApidFilterTable(uint16_t apid);
 
 void setup() {
   /* setup()
-   * 
+   *  
+   * Disables watchdog timer (in case its on)
    * Initalizes all the link hardware/software including:
    *   Serial
    *   Xbee
    *   RTC
+   *   SoftRTC
+   *   BNO
+   *   MCP
+   *   BME
+   *   SSC
+   *   ADS
    *   SD card
    *   Log files
    */
+
+  // disable the watchdog timer immediately in case it was on because of a 
+  // commanded reboot
   wdt_disable();
 
   //// Init serial ports:
@@ -298,6 +321,7 @@ void setup() {
   }
 
   //// Init BME
+  // Temp/pressure/humidity sensor
   if (!bme.begin(0x76)) {
     debug_serial.println("BME280 NOT detected.");
   }
@@ -317,6 +341,7 @@ void setup() {
   debug_serial.println(ssc.start());
   
   //// Init ADS
+  // ADC, used for current consumption/battery voltage
   ads.begin();
   ads.setGain(GAIN_ONE);
   debug_serial.println("Initialized ADS1015");
@@ -376,6 +401,7 @@ void setup() {
 void loop() {
   /*  loop()
    *  
+   *  Reads sensor data if cycle counters indicate to
    *  Reads from xbee and processes any data
    *  Reads from radio and processes any data
    */
@@ -401,13 +427,11 @@ void loop() {
     log_pwr(PWRData, PWRLogFile);
     pwr_read_ctr = 0;
   }
-  
   if(env_read_ctr > env_read_lim){
     read_env(&ENVData);
     log_env(ENVData, ENVLogFile);
     env_read_ctr = 0;
   }  
-  
 
   // initalize a counter to record how many bytes were read this iteration
   int BytesRead = 0;
@@ -445,7 +469,7 @@ void loop() {
     }
     // if the data isn't forwarded, process it as a command
     else{
-      
+      // respond to the data
       command_response(ReadData, BytesRead, IMUData, ENVData, PWRData);
     }
   
@@ -469,7 +493,7 @@ void loop() {
   RadioRcvdByteCtr += BytesRead;
 
   // increment a counter indicating the number of cycles since we received data
-  cycles_since_read++;
+  cycles_since_radio_read++;
 
   // if we read data this timestep we reset the counter indicating how long since we've 
   // received data
@@ -490,8 +514,11 @@ void loop() {
 
       // log the received data
       logPkt(radioLogFile, Buff_900toXbee, Buff_Pos, LOG_RCVD);
-        
+
+      // respond to the data
       command_response(Buff_900toXbee, Buff_Pos, IMUData, ENVData, PWRData);
+
+      // reset the buffer back to beginning since data has been processed
       Buff_Pos = 0;
     }
     
@@ -503,7 +530,7 @@ void loop() {
    *    one we get). To do this, if these is data in the buffer at its been at least 100 cycles
    *    (~1sec) since we last received data, we clear the buffer.
    */
-  if(Buff_Pos > 0 && cycles_since_read > 100){
+  if(Buff_Pos > 0 && cycles_since_radio_read > 100){
 
     // set the value of all elements of the buffer to zero
     memset( Buff_900toXbee, 0, PKT_MAX_LEN);
@@ -532,8 +559,12 @@ void loop() {
 void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData, struct ENVData_s ENVData, struct PWRData_s PWRData) {
   /*  command_response()
    * 
-   *  given an array of data (presumably containing a CCSDS packet), check if the
-   *  packet is a LINK command packet, and if so, process it
+   *  given an array of data (presumably containing a CCSDS packet), check if: 
+   *    the packet is a command packet
+   *    the APID is the LINK command packet APID
+   *    the checksum in the header is correct
+   *  if so, process it
+   *  otherwise, reject it
    */
 
   // get the APID (the field which identifies the type of packet)
@@ -583,15 +614,9 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           
           // create a HK pkt
           pktLength = create_HK_pkt(HK_Pkt_Buff);
-  
-          if(destAddr == 0){
-            // send packet via the radio and log it
-            radio_send_and_log(HK_Pkt_Buff, sizeof(HK_Pkt_Buff));
-          }
-          else{
-            // send the HK packet via xbee and log it
-            xbee_send_and_log(destAddr, HK_Pkt_Buff, sizeof(HK_Pkt_Buff));
-          }
+
+          // send the data
+          send_and_log(destAddr, HK_Pkt_Buff, sizeof(HK_Pkt_Buff));
   
           // increment the cmd executed counter
           CmdExeCtr++;
@@ -617,15 +642,9 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           debug_serial.print(pktLength-pkt_pos);
           debug_serial.print(" to addr ");
           debug_serial.println(destAddr);
-  
-          if(destAddr == 0){
-            // send packet via the radio and log it
-            radio_send_and_log(data + pkt_pos, pktLength-pkt_pos);
-          }
-          else{
-          // send the data and log it
-            xbee_send_and_log(destAddr, data + pkt_pos, pktLength-pkt_pos);
-          }        
+
+          // send the data
+          send_and_log(destAddr, data + pkt_pos, pktLength-pkt_pos);
   
           // increment the cmd executed counter
           CmdExeCtr++;
@@ -651,7 +670,7 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
   
         // TlmFilterTable
         case LINK_FLTRREQ_CMD:
-          // Requests that the values in the filter table be sent to the ground
+          // Requests that the values in the filter table be sent to the indicated address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
            *   Xbee address (1 byte) (or 0 if GND)
@@ -665,15 +684,9 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            
           // create pkt with filter table
           pktLength = create_fltrtbl_pkt(FLTR_TBL_Buff);
-  
-          if(destAddr == 0){
-            // send packet via the radio and log it
-            radio_send_and_log(FLTR_TBL_Buff, sizeof(FLTR_TBL_Buff));
-          }
-          else{
-          // send the data and log it
-            xbee_send_and_log(destAddr, FLTR_TBL_Buff, sizeof(FLTR_TBL_Buff));
-          }   
+
+          // send the data
+          send_and_log(destAddr, FLTR_TBL_Buff, sizeof(FLTR_TBL_Buff)); 
   
           // increment the cmd executed counter
           CmdExeCtr++;
@@ -705,10 +718,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           
         // ENV_Req
         case LINK_REQENV_CMD:
-          // Requests that an HK packet be sent to the specified xbee address
+          // Requests that the ENV status be reported to the specified address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte)
+           *   Xbee address (1 byte) (or 0 if GND)
            */
           
           debug_serial.print("Received ENV_Req Cmd to addr: ");
@@ -720,14 +733,8 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // create a HK pkt
           pktLength = create_ENV_pkt(Pkt_Buff, ENVData);
           
-          if(destAddr == 0){
-            // send packet via the radio and log it
-            radio_send_and_log(Pkt_Buff, pktLength);
-          }
-          else{
-          // send the data and log it
-            xbee_send_and_log(destAddr, Pkt_Buff, pktLength);
-          }   
+          // send the data
+          send_and_log(destAddr, Pkt_Buff, pktLength); 
           
           // increment the cmd executed counter
           CmdExeCtr++;
@@ -735,10 +742,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           
         // PWR_Req
         case LINK_REQPWR_CMD:
-          // Requests that an HK packet be sent to the specified xbee address
+          // Requests that the PWR status be reported to the specified address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte)
+           *   Xbee address (1 byte) (or 0 if GND)
            */
           
           debug_serial.print("Received PWR_Req Cmd to addr: ");
@@ -750,14 +757,8 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // create a HK pkt
           pktLength = create_PWR_pkt(Pkt_Buff, PWRData);
   
-          if(destAddr == 0){
-            // send packet via the radio and log it
-            radio_send_and_log(Pkt_Buff, pktLength);
-          }
-          else{
-          // send the data and log it
-            xbee_send_and_log(destAddr, Pkt_Buff, pktLength);
-          }   
+          // send the data
+          send_and_log(destAddr, Pkt_Buff, pktLength);
           
           // increment the cmd executed counter
           CmdExeCtr++;
@@ -765,10 +766,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
   
         // IMU_Req
         case LINK_REQIMU_CMD:
-          // Requests that an IMU packet be sent to the specified xbee address
+          // Requests that the IMU status be sent to the specified address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte)
+           *   Xbee address (1 byte) (or 0 if GND)
            */
           
           debug_serial.print("Received IMU_Req Cmd to addr:");
@@ -780,14 +781,8 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // create a HK pkt
           pktLength = create_IMU_pkt(Pkt_Buff, IMUData);
   
-          if(destAddr == 0){
-            // send packet via the radio and log it
-            radio_send_and_log(Pkt_Buff, pktLength);
-          }
-          else{
-          // send the data and log it
-            xbee_send_and_log(destAddr, Pkt_Buff, pktLength);
-          }   
+          // send the data
+          send_and_log(destAddr, Pkt_Buff, pktLength);
           
           // increment the cmd executed counter
           CmdExeCtr++;
@@ -799,7 +794,7 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
   
           debug_serial.println("Received Reboot Cmd");
   
-          // set the reboot flag to true
+          // set the reboot timer
           wdt_enable(WDTO_1S);
   
           // increment the cmd executed counter
@@ -813,24 +808,25 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           
           // reject command
           CmdRejCtr++;
-      }
-    }
+      } // end switch(FcnCode)
+    } // end if(validateChecksum(data))
     else{
       debug_serial.println("Checksum doesn't match!");
       CmdRejCtr++;
-    }
-  }
+    } // end else
+  } // end if(getPacketType(data) && _APID == LINK_CMD_APID){
   else{
     debug_serial.print("Unrecognized apid 0x");
     debug_serial.println(_APID, HEX);
   }
-}
+} // end command_response()
 
 uint16_t create_HK_pkt(uint8_t HK_Pkt_Buff[]){
 /*  create_HK_pkt()
  * 
  *  Creates an HK packet containing the values of all the interface counters. 
- *  Packet data is filled into the memory passed in as the argument
+ *  Packet data is filled into the memory passed in as the argument. This function
+ *  assumes that the buffer is large enough to hold this packet.
  *  
  */
 
@@ -877,7 +873,8 @@ uint16_t create_fltrtbl_pkt(uint8_t FLTR_TBL_Buff[]){
 /*  create_fltrtbl_pkt()
  * 
  *  Creates an filter table packet containing the values of the filter table
- *  Packet data is filled into the memory passed in as the argument
+ *  Packet data is filled into the memory passed in as the argument. This function
+ *  assumes that the buffer is large enough to hold this packet.
  *  
  */
  
@@ -919,7 +916,8 @@ uint16_t create_fltrtbl_pkt(uint8_t FLTR_TBL_Buff[]){
 boolean checkApidFilterTable(uint16_t apid){
 /* checkApidFilterTable()
  *  
- *  checks if the given apid exists in the filter table
+ *  checks if the given apid exists in the filter table. Returns
+ *  true if it does, false otherwise.
  *  
  */
 
@@ -963,7 +961,7 @@ void xbee_send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len){
 /*  xbee_send_and_log()
  * 
  *  Sends the given data out over the xbee and adds an entry to the xbee log file.
- *  Also updates the radio sent counter.
+ *  Also updates the xbee sent counter.
  */
  
   // send the data via xbee
@@ -1038,6 +1036,12 @@ void logPkt(File file, uint8_t data[], uint8_t len, uint8_t received_flg){
 }
 
 void log_imu(struct IMUData_s IMUData, File IMULogFile){
+/*  log_imu()
+ * 
+ *  Writes the IMU data to a log file with a timestamp.
+ *  
+ */
+  
   // print the time to the file
   print_time(IMULogFile);
 
@@ -1072,6 +1076,12 @@ void log_imu(struct IMUData_s IMUData, File IMULogFile){
   IMULogFile.flush();
 }
 void log_env(struct ENVData_s ENVData, File ENVLogFile){
+/*  log_env()
+ * 
+ *  Writes the ENV data to a log file with a timestamp.
+ *  
+ */
+ 
   // print the time to the file
   print_time(ENVLogFile);
 
@@ -1095,6 +1105,12 @@ void log_env(struct ENVData_s ENVData, File ENVLogFile){
 }
 
 void log_pwr(struct PWRData_s PWRData, File PWRLogFile){
+/*  log_pwr()
+ * 
+ *  Writes the PWR data to a log file with a timestamp.
+ *  
+ */
+ 
   // print the time to the file
   print_time(PWRLogFile);
   
@@ -1108,7 +1124,13 @@ void log_pwr(struct PWRData_s PWRData, File PWRLogFile){
 }
 
 void read_env(struct ENVData_s *ENVData){
-  
+/*  read_env()
+ * 
+ *  Reads all of the environmental sensors and stores data in 
+ *  a structure.
+ *  
+ */
+ 
   //BME280
   ENVData->bme_pres = bme.readPressure() / 100.0F; // hPa
   ENVData->bme_temp = bme.readTemperature(); // degC
@@ -1128,13 +1150,23 @@ void read_env(struct ENVData_s *ENVData){
 }
 
 void read_pwr(struct PWRData_s *PWRData){
-  
+/*  read_pwr()
+ * 
+ *  Reads all of the power sensors and stores data in 
+ *  a structure.
+ *  
+ */
   PWRData->batt_volt = ((float)ads.readADC_SingleEnded(2)) * 0.002 * 3.0606; // V
   PWRData->i_consump = (((float)ads.readADC_SingleEnded(3)) * 0.002 - 2.5) * 10;
 }
 
 void read_imu(struct IMUData_s *IMUData){
-
+/*  read_imu()
+ * 
+ *  Reads all of the IMU sensors and stores data in 
+ *  a structure.
+ *  
+ */
   uint8_t system_cal, gyro_cal, accel_cal, mag_cal = 0;
   bno.getCalibration(&system_cal, &gyro_cal, &accel_cal, &mag_cal);
 
@@ -1163,10 +1195,12 @@ void read_imu(struct IMUData_s *IMUData){
 uint16_t create_ENV_pkt(uint8_t HK_Pkt_Buff[], struct ENVData_s ENVData){
 /*  create_ENV_pkt()
  * 
- *  Creates an HK packet containing the values of all the interface counters. 
- *  Packet data is filled into the memory passed in as the argument
+ *  Creates an ENV packet containing the values of all environmental sensors. 
+ *  Packet data is filled into the memory passed in as the argument. This function
+ *  assumes that the buffer is large enough to hold this packet.
  *  
  */
+
   // get the current time from the RTC
   DateTime now = rtc.now();
   
@@ -1208,10 +1242,11 @@ uint16_t create_ENV_pkt(uint8_t HK_Pkt_Buff[], struct ENVData_s ENVData){
 }
 
 uint16_t create_PWR_pkt(uint8_t HK_Pkt_Buff[], struct PWRData_s PWRData){
-/*  create_ENV_pkt()
+/*  create_PWR_pkt()
  * 
- *  Creates an HK packet containing the values of all the interface counters. 
- *  Packet data is filled into the memory passed in as the argument
+ *  Creates an PWR packet containing the values of all the power/battery sensors. 
+ *  Packet data is filled into the memory passed in as the argument. This function
+ *  assumes that the buffer is large enough to hold this packet.
  *  
  */
   // get the current time from the RTC
@@ -1252,8 +1287,9 @@ uint16_t create_PWR_pkt(uint8_t HK_Pkt_Buff[], struct PWRData_s PWRData){
 uint16_t create_IMU_pkt(uint8_t HK_Pkt_Buff[], struct IMUData_s IMUData){
 /*  create_IMU_pkt()
  * 
- *  Creates an HK packet containing the values of all the interface counters. 
- *  Packet data is filled into the memory passed in as the argument
+ *  Creates an IMU packet containing the values of all the IMU sensors. 
+ *  Packet data is filled into the memory passed in as the argument. This function
+ *  assumes that the buffer is large enough to hold this packet.
  *  
  */
   // get the current time from the RTC
@@ -1301,3 +1337,21 @@ uint16_t create_IMU_pkt(uint8_t HK_Pkt_Buff[], struct IMUData_s IMUData){
   return payloadSize;
 
 }
+
+void send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len){
+/*  send_and_log()
+ * 
+ *  If the destination address is 0, calls radio_send_and_log. Otherwise
+ *  calls xbee_send_and_log
+ *  
+ */
+  if(dest_addr == 0){
+    // send packet via the radio and log it
+    radio_send_and_log(data, data_len);
+  }
+  else{
+    // send the HK packet via xbee and log it
+    xbee_send_and_log(dest_addr, data, data_len);
+  }
+}
+
