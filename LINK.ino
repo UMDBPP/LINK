@@ -269,7 +269,7 @@ void setup() {
    *   xbees which also use this library. It also handles the initalization
    *   of the adafruit xbee library
    */
-  int xbeeStatus = InitXBee(XBee_MY_Addr, XBee_PAN_ID, xbee_serial);
+  uint8_t xbeeStatus = InitXBee(XBee_MY_Addr, XBee_PAN_ID, xbee_serial);
   if(!xbeeStatus) {
     debug_serial.println(F("XBee Initialized!"));
   } else {
@@ -303,17 +303,19 @@ void setup() {
   start_millis = millis();  // get the current millisecond count
 
   //// BNO
-  if(!bno.begin()){
+  uint8_t BNO_init = 0;
+  if(!(BNO_init = bno.begin())){
     debug_serial.println("BNO055 NOT detected.");
   }
   else{
     debug_serial.println("BNO055 detected!");
   }
-  delay(1000);
+  delay(500);
   bno.setExtCrystalUse(true);
 
   //// MCP9808
-  if (!tempsensor.begin(0x18)) {
+  uint8_t MCP_init = 0;
+  if (!(MCP_init = tempsensor.begin(0x18))) {
     debug_serial.println("MCP9808 NOT detected.");
   }
   else{
@@ -322,7 +324,8 @@ void setup() {
 
   //// Init BME
   // Temp/pressure/humidity sensor
-  if (!bme.begin(0x76)) {
+  uint8_t BME_init = 0;
+  if (!(BME_init = bme.begin(0x76))) {
     debug_serial.println("BME280 NOT detected.");
   }
   else{
@@ -337,9 +340,14 @@ void setup() {
   ssc.setMinPressure(0.0);
   ssc.setMaxPressure(30);
   //  start the sensor
-  debug_serial.print("SSC start: ");
-  debug_serial.println(ssc.start());
-  
+  uint8_t SSC_init = 0;
+  if((SSC_init = ssc.start())){
+    debug_serial.println("SSC started ");
+  }
+  else{
+    debug_serial.println("SSC failed!");
+  }
+
   //// Init ADS
   // ADC, used for current consumption/battery voltage
   ads.begin();
@@ -363,33 +371,45 @@ void setup() {
    *  and one for recording its initialization status each time it starts up.
    *  NOTE: Filenames must be shorter than 8 characters
    */
+   
   xbeeLogFile = SD.open("XBEE_LOG.txt", FILE_WRITE);
   delay(10);
   radioLogFile = SD.open("RDIO_LOG.txt", FILE_WRITE);
   delay(10);
+  
+  // for data files, write a header
   initLogFile = SD.open("INIT_LOG.txt", FILE_WRITE);
+  initLogFile.println("DateTime,RTCStart,RTCRun,BNO,BME,MCP,SSC,Xbee");
+  initLogFile.flush(); 
   delay(10);
   IMULogFile = SD.open("IMU_LOG.txt", FILE_WRITE);
+  IMULogFile.println("DateTime,SystemCal[0-3],AccelCal[0-3],GyroCal[0-3],MagCal[0-3],AccelX[m/s^2],AccelY[m/s^2],AccelZ[m/s^2],GyroX[rad/s],GyroY[rad/s],GyroZ[rad/s],MagX[uT],MagY[uT],MagZ[uT]");
+  IMULogFile.flush();  
   delay(10);
   PWRLogFile = SD.open("PWR_LOG.txt", FILE_WRITE);
+  PWRLogFile.println("DateTime,BatteryVoltage[V],CurrentConsumption[A]");
+  PWRLogFile.flush();
   delay(10);
   ENVLogFile = SD.open("ENV_LOG.txt", FILE_WRITE);
-  delay(10);
+  ENVLogFile.println("DateTime,BMEPressure[hPa],BMETemp[degC],BMEHumidity[%],SSCPressure[PSI],SSCTemp[degC],BNOTemp[degC],MCPTemp[degC]");
+  ENVLogFile.flush();
+  delay(10);  
   
   // write entry in init log file
-  initLogFile.print("Startup Time: ");
   print_time(initLogFile);
-  initLogFile.print(", RTC start: ");
+  initLogFile.print(", ");
   initLogFile.print(rtc_start);
-  initLogFile.print(", RTC run: ");
+  initLogFile.print(", ");
   initLogFile.print(rtc_running);
-  initLogFile.print(", xbee log: ");
-  initLogFile.print(xbeeLogFile);
-  initLogFile.print(", radio log: ");
-  initLogFile.print(radioLogFile);
-  initLogFile.print(", init log: ");
-  initLogFile.print(initLogFile);
-  initLogFile.print(", Xbee init status:  ");
+  initLogFile.print(", ");
+  initLogFile.print(BNO_init);
+  initLogFile.print(", ");
+  initLogFile.print(BME_init);
+  initLogFile.print(", ");
+  initLogFile.print(MCP_init);
+  initLogFile.print(", ");
+  initLogFile.print(SSC_init);
+  initLogFile.print(", ");
   initLogFile.print(xbeeStatus);
   initLogFile.println();
   initLogFile.close();
@@ -498,7 +518,7 @@ void loop() {
   // if we read data this timestep we reset the counter indicating how long since we've 
   // received data
   if(BytesRead > 0){
-    cycles_since_read = 0;
+    cycles_since_radio_read = 0;
   }
   
   // process any packets
