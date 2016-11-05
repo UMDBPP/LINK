@@ -80,22 +80,24 @@
 // LINK APIDS
 #define LINK_CMD_APID 200
 #define LINK_HK_APID 210
-#define LINK_GND_MSG_APID 220 
-#define LINK_FLTR_TBL_APID 230
-#define LINK_ENV_APID 240
-#define LINK_PWR_APID 250
-#define LINK_IMU_APID 260
+#define LINK_ENV_APID 211
+#define LINK_PWR_APID 212
+#define LINK_IMU_APID 213
+#define LINK_INIT_APID 214
+#define LINK_FLTR_TBL_APID 215
+#define LINK_GND_MSG_APID 240 
 
 // LINK FcnCodes
 #define LINK_NOOP_CMD 0
 #define LINK_HKREQ_CMD 10
-#define LINK_FWDMSG_CMD 20 
+#define LINK_REQENV_CMD 11
+#define LINK_REQPWR_CMD 12
+#define LINK_REQIMU_CMD 13
+#define LINK_REQINIT_CMD 14
+#define LINK_FLTRREQ_CMD 15
+#define LINK_SETFLTR_CMD 20
 #define LINK_RESETCTR_CMD 30
-#define LINK_FLTRREQ_CMD 40
-#define LINK_SETFLTR_CMD 50
-#define LINK_REQENV_CMD 60
-#define LINK_REQPWR_CMD 70
-#define LINK_REQIMU_CMD 80
+#define LINK_FWDMSG_CMD 40 
 #define LINK_REBOOT_CMD 99
 
 //// Declare objects
@@ -173,6 +175,17 @@ struct ENVData_s {
   float bno_temp;
   float mcp_temp;
 }; 
+// environmental data
+struct InitStat_s {
+  uint8_t xbeeStatus;
+  uint8_t rtc_running;
+  uint8_t rtc_start;
+  uint8_t BNO_init;
+  uint8_t MCP_init;
+  uint8_t BME_init;
+  uint8_t SSC_init;
+  uint8_t SD_detected;
+}; 
 
 //// Interface counters
 // counters to track what data comes into/out of link
@@ -190,6 +203,7 @@ uint16_t filter_table[FILT_TBL_LEN] = {300, 310, 320, 400, 410, 420, 600, 610, 6
 //// Other variables
 uint16_t cycles_since_radio_read = 0;
 uint32_t start_millis = 0;
+InitStat_s InitStat;
 
 //// Files
 // interface logging files
@@ -264,17 +278,19 @@ void setup() {
   xbee_serial.begin(9600);
   radio_serial.begin(9600);
 
+  debug_serial.println("Begin Link Init!");
+
   //// Init Xbee
   /* InitXbee() will configure the attached xbee so that it can talk to
    *   xbees which also use this library. It also handles the initalization
    *   of the adafruit xbee library
    */
-  uint8_t xbeeStatus = InitXBee(XBee_MY_Addr, XBee_PAN_ID, xbee_serial);
-  if(!xbeeStatus) {
+  InitStat.xbeeStatus = InitXBee(XBee_MY_Addr, XBee_PAN_ID, xbee_serial);
+  if(!InitStat.xbeeStatus) {
     debug_serial.println(F("XBee Initialized!"));
   } else {
     debug_serial.print(F("XBee Failed to Initialize with Error Code: "));
-    debug_serial.println(xbeeStatus);
+    debug_serial.println(InitStat.xbeeStatus);
   }
 
   //// RTC  
@@ -282,14 +298,14 @@ void setup() {
    *  is not running (because no battery is inserted) the RTC will be initalized
    *  to the time that this sketch was compiled at.
    */
-  uint8_t rtc_running = 0;
-  uint8_t rtc_start = 0;
-  if (! (rtc_start = rtc.begin())) {
+  InitStat.rtc_start = rtc.begin();
+  if (!InitStat.rtc_start) {
     Serial.println("RTC NOT detected.");
   }
   else{
     Serial.println("RTC detected!");
-    if (! (rtc_running = rtc.isrunning())) {
+    InitStat.rtc_running = rtc.isrunning();
+    if (!InitStat.rtc_running) {
       debug_serial.println("RTC is NOT running!");
       // following line sets the RTC to the date & time this sketch was compiled
       rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
@@ -303,8 +319,8 @@ void setup() {
   start_millis = millis();  // get the current millisecond count
 
   //// BNO
-  uint8_t BNO_init = 0;
-  if(!(BNO_init = bno.begin())){
+  InitStat.BNO_init = bno.begin();
+  if(!InitStat.BNO_init){
     debug_serial.println("BNO055 NOT detected.");
   }
   else{
@@ -314,8 +330,8 @@ void setup() {
   bno.setExtCrystalUse(true);
 
   //// MCP9808
-  uint8_t MCP_init = 0;
-  if (!(MCP_init = tempsensor.begin(0x18))) {
+  InitStat.MCP_init = tempsensor.begin(0x18);
+  if (!InitStat.MCP_init) {
     debug_serial.println("MCP9808 NOT detected.");
   }
   else{
@@ -324,8 +340,8 @@ void setup() {
 
   //// Init BME
   // Temp/pressure/humidity sensor
-  uint8_t BME_init = 0;
-  if (!(BME_init = bme.begin(0x76))) {
+  InitStat.BME_init = bme.begin(0x76);
+  if (!InitStat.BME_init) {
     debug_serial.println("BME280 NOT detected.");
   }
   else{
@@ -340,8 +356,8 @@ void setup() {
   ssc.setMinPressure(0.0);
   ssc.setMaxPressure(30);
   //  start the sensor
-  uint8_t SSC_init = 0;
-  if((SSC_init = ssc.start())){
+  InitStat.SSC_init = ssc.start();
+  if(!InitStat.SSC_init){
     debug_serial.println("SSC started ");
   }
   else{
@@ -359,7 +375,8 @@ void setup() {
    */
   SPI.begin();
   pinMode(53,OUTPUT);
-  if (!SD.begin(53)) {
+  InitStat.SD_detected = SD.begin(53);
+  if (!InitStat.SD_detected) {
     debug_serial.println("SD Card NOT detected.");
   }
   else{
@@ -398,19 +415,21 @@ void setup() {
   // write entry in init log file
   print_time(initLogFile);
   initLogFile.print(", ");
-  initLogFile.print(rtc_start);
+  initLogFile.print(InitStat.rtc_start);
   initLogFile.print(", ");
-  initLogFile.print(rtc_running);
+  initLogFile.print(InitStat.rtc_running);
   initLogFile.print(", ");
-  initLogFile.print(BNO_init);
+  initLogFile.print(InitStat.BNO_init);
   initLogFile.print(", ");
-  initLogFile.print(BME_init);
+  initLogFile.print(InitStat.BME_init);
   initLogFile.print(", ");
-  initLogFile.print(MCP_init);
+  initLogFile.print(InitStat.MCP_init);
   initLogFile.print(", ");
-  initLogFile.print(SSC_init);
+  initLogFile.print(InitStat.SSC_init);
   initLogFile.print(", ");
-  initLogFile.print(xbeeStatus);
+  initLogFile.print(InitStat.xbeeStatus);
+  initLogFile.print(", ");
+  initLogFile.print(InitStat.SD_detected);
   initLogFile.println();
   initLogFile.close();
 
@@ -619,7 +638,7 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           CmdExeCtr++;
           break;
           
-        // HK_REQ
+        // REQ_HK
         case LINK_HKREQ_CMD:
           // Requests that an HK packet be sent to the ground
           debug_serial.print("Received HKReq Cmd to addr ");
@@ -800,6 +819,30 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           
           // create a HK pkt
           pktLength = create_IMU_pkt(Pkt_Buff, IMUData);
+  
+          // send the data
+          send_and_log(destAddr, Pkt_Buff, pktLength);
+          
+          // increment the cmd executed counter
+          CmdExeCtr++;
+          break;
+
+        // Init_Req
+        case LINK_REQINIT_CMD:
+          // Requests that the IMU status be sent to the specified address
+          /*  Command format:
+           *   CCSDS Command Header (8 bytes)
+           *   Xbee address (1 byte) (or 0 if GND)
+           */
+          
+          debug_serial.print("Received Init_Req Cmd to addr:");
+  
+          // extract the desired xbee address from the packet
+          pkt_pos = extractFromTlm(destAddr, data, 8);
+          debug_serial.println(destAddr);
+          
+          // create a Init pkt
+          pktLength = create_INIT_pkt(Pkt_Buff, InitStat);
   
           // send the data
           send_and_log(destAddr, Pkt_Buff, pktLength);
@@ -1350,6 +1393,55 @@ uint16_t create_IMU_pkt(uint8_t HK_Pkt_Buff[], struct IMUData_s IMUData){
   payloadSize = addFloatToTlm(IMUData.mag_x, HK_Pkt_Buff, payloadSize); // Add battery accelerometer x to message [Float]
   payloadSize = addFloatToTlm(IMUData.mag_y, HK_Pkt_Buff, payloadSize); // Add battery accelerometer y to message [Float]
   payloadSize = addFloatToTlm(IMUData.mag_z, HK_Pkt_Buff, payloadSize); // Add battery accelerometer z to message [Float]
+
+  // fill the length field
+  setPacketLength(HK_Pkt_Buff, payloadSize);
+  
+  return payloadSize;
+
+}
+
+uint16_t create_INIT_pkt(uint8_t HK_Pkt_Buff[], struct InitStat_s InitStat){
+/*  create_IMU_pkt()
+ * 
+ *  Creates an IMU packet containing the values of all the IMU sensors. 
+ *  Packet data is filled into the memory passed in as the argument. This function
+ *  assumes that the buffer is large enough to hold this packet.
+ *  
+ */
+  // get the current time from the RTC
+  DateTime now = rtc.now();
+  
+  // initalize counter to record length of packet
+  uint16_t payloadSize = 0;
+
+  // add length of primary header
+  payloadSize += sizeof(CCSDS_PriHdr_t);
+
+  // Populate primary header fields:
+  setAPID(HK_Pkt_Buff, LINK_INIT_APID);
+  setSecHdrFlg(HK_Pkt_Buff, 1);
+  setPacketType(HK_Pkt_Buff, 0);
+  setVer(HK_Pkt_Buff, 0);
+  setSeqCtr(HK_Pkt_Buff, 0);
+  setSeqFlg(HK_Pkt_Buff, 0);
+
+  // add length of secondary header
+  payloadSize += sizeof(CCSDS_TlmSecHdr_t);
+
+  // Populate the secondary header fields:
+  setTlmTimeSec(HK_Pkt_Buff, now.unixtime());
+  setTlmTimeSubSec(HK_Pkt_Buff, 0);
+
+  // Add counter values to the pkt
+  payloadSize = addIntToTlm(InitStat.xbeeStatus, HK_Pkt_Buff, payloadSize); // Add system cal status to message [uint8_t]
+  payloadSize = addIntToTlm(InitStat.rtc_running, HK_Pkt_Buff, payloadSize); // Add accelerometer cal status to message [uint8_t]
+  payloadSize = addIntToTlm(InitStat.rtc_start, HK_Pkt_Buff, payloadSize); // Add gyro cal status to message [uint8_t]
+  payloadSize = addIntToTlm(InitStat.BNO_init, HK_Pkt_Buff, payloadSize); // Add mnagnetomter cal status to message [uint8_t]
+  payloadSize = addIntToTlm(InitStat.MCP_init, HK_Pkt_Buff, payloadSize); // Add mnagnetomter cal status to message [uint8_t]
+  payloadSize = addIntToTlm(InitStat.BME_init, HK_Pkt_Buff, payloadSize); // Add mnagnetomter cal status to message [uint8_t]
+  payloadSize = addIntToTlm(InitStat.SSC_init, HK_Pkt_Buff, payloadSize); // Add mnagnetomter cal status to message [uint8_t]
+  payloadSize = addIntToTlm(InitStat.SD_detected, HK_Pkt_Buff, payloadSize); // Add mnagnetomter cal status to message [uint8_t]
 
   // fill the length field
   setPacketLength(HK_Pkt_Buff, payloadSize);
