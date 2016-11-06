@@ -198,7 +198,7 @@ uint32_t XbeeSentByteCtr = 0;
 
 //// Filter Table
 // table to filter what packets to automatically relay to ground
-uint16_t filter_table[FILT_TBL_LEN] = {300, 310, 320, 400, 410, 420, 600, 610, 620, 630, 640, 0, 0, 0, 0};
+uint16_t filter_table[FILT_TBL_LEN] = {300, 310, 320, 400, 410, 420,430,440,401,500,510,520,530,540,501};
 
 //// Other variables
 uint16_t cycles_since_radio_read = 0;
