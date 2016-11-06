@@ -71,6 +71,7 @@
 #include "CCSDS_Xbee/ccsds_xbee.h"
 #include "CCSDS_Xbee/ccsds_util.h"
 #include <SSC.h>
+#include <EEPROM.h>
 
 //// Enumerations
 // logging flag
@@ -111,7 +112,8 @@ SSC ssc(0x28, 255);
 
 //// Compile time constants
 #define PKT_MAX_LEN 200     // size of buffers to contain packets being relayed
-#define FILT_TBL_LEN 15     // number of elements in the packet filter table
+#define FILT_TBL_NUM_EL 15     // number of elements in the packet filter table
+#define FLTR_TBL_START_ADDR 0
 
 //// Serial object aliases
 // so that the user doesn't have to keep track of which is which
@@ -198,7 +200,7 @@ uint32_t XbeeSentByteCtr = 0;
 
 //// Filter Table
 // table to filter what packets to automatically relay to ground
-uint16_t filter_table[FILT_TBL_LEN] = {300, 310, 320, 400, 410, 420, 600, 610, 620, 630, 640, 0, 0, 0, 0};
+uint16_t filter_table[FILT_TBL_NUM_EL] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 //// Other variables
 uint16_t cycles_since_radio_read = 0;
@@ -276,7 +278,7 @@ void setup() {
    */
   debug_serial.begin(250000);
   xbee_serial.begin(9600);
-  radio_serial.begin(9600);
+  radio_serial.begin(57600);
 
   debug_serial.println("Begin Link Init!");
 
@@ -369,6 +371,19 @@ void setup() {
   ads.begin();
   ads.setGain(GAIN_ONE);
   debug_serial.println("Initialized ADS1015");
+
+  //// Init filter table
+  // loads filter table values from non-volatile EEPROM storage
+  // SetFltrTbl command will update both the program copy and the EEPROM
+  // so that any changes are loaded on reboot
+  debug_serial.print("Loading filter table: ");
+  // loop through reading the values into a program variable
+  for(int i = 0; i < FILT_TBL_NUM_EL; i++){
+    EEPROM.get(FLTR_TBL_START_ADDR+i*2,filter_table[i]);
+    debug_serial.print(filter_table[i]);
+    debug_serial.print(", ");
+  }
+  debug_serial.println();
   
   //// Init SD card
   /* The SD card is used to store all of the log files.
@@ -538,6 +553,14 @@ void loop() {
   // received data
   if(BytesRead > 0){
     cycles_since_radio_read = 0;
+    debug_serial.print("Got ");
+    debug_serial.print(BytesRead);
+    debug_serial.print(" bytes:");
+    for (int i = 0; i < BytesRead; i++){
+      debug_serial.print(Buff_900toXbee[Buff_Pos+i]);
+      debug_serial.print(", ");
+    }
+    debug_serial.println();
   }
   
   // process any packets
@@ -619,7 +642,7 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
       uint8_t destAddr = 0;
       uint16_t pktLength = 0;
       uint8_t HK_Pkt_Buff[36];
-      uint8_t FLTR_TBL_Buff[FILT_TBL_LEN*2+12];
+      uint8_t FLTR_TBL_Buff[FILT_TBL_NUM_EL*2+12];
       uint8_t Pkt_Buff[100];
       uint16_t tbl_val = 0;
       uint8_t pkt_pos = 7;
@@ -670,7 +693,7 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            *   Data (rest of packet)
            */
            
-          debug_serial.print("Received XbeeFwdMessage Cmd of length ");
+          debug_serial.print("Received FwdMessage Cmd of length ");
   
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(destAddr, data, 8);
@@ -750,7 +773,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            
            // update the filter table
            filter_table[tbl_idx] = tbl_val;
-  
+
+           debug_serial.println("Updating EEPROM storage");
+           EEPROM.put(FLTR_TBL_START_ADDR+tbl_idx*2,tbl_val);  
+
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
@@ -966,7 +992,7 @@ uint16_t create_fltrtbl_pkt(uint8_t FLTR_TBL_Buff[]){
   setTlmTimeSubSec(FLTR_TBL_Buff, 0);
 
   // add elements of filter table to the packet
-  for(int i = 0; i < FILT_TBL_LEN; i++){
+  for(int i = 0; i < FILT_TBL_NUM_EL; i++){
     payloadSize = addIntToTlm(filter_table[i], FLTR_TBL_Buff, payloadSize); // Add the value of the table to message
   }
  
@@ -985,7 +1011,7 @@ boolean checkApidFilterTable(uint16_t apid){
  */
 
   // loop through filter table and return true if value is found
-  for(int i = 0; i < FILT_TBL_LEN; i++){
+  for(int i = 0; i < FILT_TBL_NUM_EL; i++){
     if(apid == filter_table[i]){
       return true;
     }
