@@ -86,6 +86,7 @@
 #define LINK_IMU_APID 213
 #define LINK_INIT_APID 214
 #define LINK_FLTR_TBL_APID 215
+#define LINK_TIME_MSG_APID 216
 #define LINK_GND_MSG_APID 240 
 
 // LINK FcnCodes
@@ -96,9 +97,11 @@
 #define LINK_REQIMU_CMD 13
 #define LINK_REQINIT_CMD 14
 #define LINK_FLTRREQ_CMD 15
+#define LINK_REQTIME_CMD 16
 #define LINK_SETFLTR_CMD 20
 #define LINK_RESETCTR_CMD 30
 #define LINK_FWDMSG_CMD 40 
+#define LINK_SETTIME_CMD 50
 #define LINK_REBOOT_CMD 99
 
 //// Declare objects
@@ -232,6 +235,7 @@ uint16_t create_fltrtbl_pkt(uint8_t FLTR_TBL_Buff[]);
 uint16_t create_IMU_pkt(uint8_t HK_Pkt_Buff[], struct IMUData_s IMUData);
 uint16_t create_PWR_pkt(uint8_t HK_Pkt_Buff[], struct PWRData_s PWRData);
 uint16_t create_ENV_pkt(uint8_t HK_Pkt_Buff[], struct ENVData_s ENVData);
+uint16_t create_TIME_pkt(uint8_t HK_Pkt_Buff[], DateTime t);
 
 // sensor reading
 void read_imu(struct IMUData_s *IMUData);
@@ -647,6 +651,7 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
       uint16_t tbl_val = 0;
       uint8_t pkt_pos = 7;
       uint8_t tbl_idx = 0;
+      uint32_t tmp_uint32 = 0;
   
       // respond to the command depending on what type of command it is
       switch(FcnCode){
@@ -873,6 +878,49 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // send the data
           send_and_log(destAddr, Pkt_Buff, pktLength);
           
+          // increment the cmd executed counter
+          CmdExeCtr++;
+          break;
+
+        // SetTime
+        case LINK_SETTIME_CMD:
+          // Sets the RTC time
+          /*  Command format:
+           *   CCSDS Command Header (8 bytes)
+           *   Time (4 byte)
+           */
+          
+          debug_serial.print("Received SetTime Cmd:");
+  
+          // extract the desired xbee address from the packet
+          pkt_pos = extractFromTlm(tmp_uint32, data, 8);
+          debug_serial.println(destAddr);
+          
+          rtc.adjust(DateTime(tmp_uint32));
+          
+          // increment the cmd executed counter
+          CmdExeCtr++;
+          break;
+          
+        // GetTime
+        case LINK_REQTIME_CMD:
+          // Requests that the IMU status be sent to the specified address
+          /*  Command format:
+           *   CCSDS Command Header (8 bytes)
+           *   Xbee address (1 byte) (or 0 if GND)
+           */
+          
+          debug_serial.print("Received Req_Time Cmd to addr:");
+  
+          // extract the desired xbee address from the packet
+          pkt_pos = extractFromTlm(destAddr, data, 8);
+          debug_serial.println(destAddr);
+
+          // create a Init pkt
+          pktLength = create_TIME_pkt(Pkt_Buff, rtc.now());
+  
+          // send the data
+          send_and_log(destAddr, Pkt_Buff, pktLength);
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
@@ -1476,6 +1524,48 @@ uint16_t create_INIT_pkt(uint8_t HK_Pkt_Buff[], struct InitStat_s InitStat){
 
 }
 
+
+uint16_t create_TIME_pkt(uint8_t Pkt_Buff[], DateTime t){
+/*  create_IMU_pkt()
+ * 
+ *  Creates an IMU packet containing the values of all the IMU sensors. 
+ *  Packet data is filled into the memory passed in as the argument. This function
+ *  assumes that the buffer is large enough to hold this packet.
+ *  
+ */
+  // get the current time from the RTC
+  DateTime now = rtc.now();
+  
+  // initalize counter to record length of packet
+  uint16_t payloadSize = 0;
+
+  // add length of primary header
+  payloadSize += sizeof(CCSDS_PriHdr_t);
+
+  // Populate primary header fields:
+  setAPID(Pkt_Buff, LINK_TIME_MSG_APID);
+  setSecHdrFlg(Pkt_Buff, 1);
+  setPacketType(Pkt_Buff, 0);
+  setVer(Pkt_Buff, 0);
+  setSeqCtr(Pkt_Buff, 0);
+  setSeqFlg(Pkt_Buff, 0);
+
+  // add length of secondary header
+  payloadSize += sizeof(CCSDS_TlmSecHdr_t);
+
+  // Populate the secondary header fields:
+  setTlmTimeSec(Pkt_Buff, now.unixtime());
+  setTlmTimeSubSec(Pkt_Buff, 0);
+
+  // Add counter values to the pkt
+  payloadSize = addIntToTlm(t.unixtime(), Pkt_Buff, payloadSize); // Add system cal status to message [uint8_t]
+
+  // fill the length field
+  setPacketLength(Pkt_Buff, payloadSize);
+  
+  return payloadSize;
+
+}
 void send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len){
 /*  send_and_log()
  * 
