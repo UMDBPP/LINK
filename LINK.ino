@@ -87,7 +87,8 @@
 #define LINK_INIT_APID 214
 #define LINK_FLTR_TBL_APID 215
 #define LINK_TIME_MSG_APID 216
-#define LINK_FILE_MSG_APID 217
+#define LINK_FILEINFO_MSG_APID 217
+#define LINK_FILEPART_MSG_APID 218
 #define LINK_GND_MSG_APID 240 
 
 // LINK FcnCodes
@@ -1067,6 +1068,13 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           pkt_pos = extractFromTlm(start_pos, data, pkt_pos);
           debug_serial.print(" to: ");
           pkt_pos = extractFromTlm(end_pos, data, pkt_pos);
+
+          // if the user requested more bytes than a packet can hold
+          // then reject the command
+          if(end_pos - start_pos > PKT_MAX_LEN - 12){
+            CmdRejCtr++;
+            break;
+          }
           
           rootdir = SD.open("/");
           rootdir.seek(0);
@@ -1762,7 +1770,7 @@ uint16_t create_FILEINFO_pkt(uint8_t Pkt_Buff[], File entry){
   payloadSize += sizeof(CCSDS_PriHdr_t);
 
   // Populate primary header fields:
-  setAPID(Pkt_Buff, LINK_FILE_MSG_APID);
+  setAPID(Pkt_Buff, LINK_FILEINFO_MSG_APID);
   setSecHdrFlg(Pkt_Buff, 1);
   setPacketType(Pkt_Buff, 0);
   setVer(Pkt_Buff, 0);
@@ -1812,7 +1820,7 @@ uint16_t create_FILEPART_pkt(uint8_t Pkt_Buff[], File entry, uint32_t start_pos,
   payloadSize += sizeof(CCSDS_PriHdr_t);
 
   // Populate primary header fields:
-  setAPID(Pkt_Buff, LINK_FILE_MSG_APID);
+  setAPID(Pkt_Buff, LINK_FILEPART_MSG_APID);
   setSecHdrFlg(Pkt_Buff, 1);
   setPacketType(Pkt_Buff, 0);
   setVer(Pkt_Buff, 0);
