@@ -87,6 +87,7 @@
 #define LINK_INIT_APID 214
 #define LINK_FLTR_TBL_APID 215
 #define LINK_TIME_MSG_APID 216
+#define LINK_FILE_MSG_APID 217
 #define LINK_GND_MSG_APID 240 
 
 // LINK FcnCodes
@@ -98,6 +99,7 @@
 #define LINK_REQINIT_CMD 14
 #define LINK_FLTRREQ_CMD 15
 #define LINK_REQTIME_CMD 16
+#define LINK_REQFILEINFO_CMD 17
 #define LINK_SETFLTR_CMD 20
 #define LINK_RESETCTR_CMD 30
 #define LINK_FWDMSG_CMD 40 
@@ -236,6 +238,7 @@ uint16_t create_IMU_pkt(uint8_t HK_Pkt_Buff[], struct IMUData_s IMUData);
 uint16_t create_PWR_pkt(uint8_t HK_Pkt_Buff[], struct PWRData_s PWRData);
 uint16_t create_ENV_pkt(uint8_t HK_Pkt_Buff[], struct ENVData_s ENVData);
 uint16_t create_TIME_pkt(uint8_t HK_Pkt_Buff[], DateTime t);
+uint16_t create_FILEINFO_pkt(uint8_t Pkt_Buff[], File entry);
 
 // sensor reading
 void read_imu(struct IMUData_s *IMUData);
@@ -652,6 +655,9 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
       uint8_t pkt_pos = 7;
       uint8_t tbl_idx = 0;
       uint32_t tmp_uint32 = 0;
+      uint8_t tmp_uint8 = 0;
+      File rootdir = SD.open("/");
+      File entry;
   
       // respond to the command depending on what type of command it is
       switch(FcnCode){
@@ -890,11 +896,11 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            *   Time (4 byte)
            */
           
-          debug_serial.print("Received SetTime Cmd:");
+          debug_serial.print("Received SetTime Cmd with time: ");
   
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(tmp_uint32, data, 8);
-          debug_serial.println(destAddr);
+          debug_serial.println(tmp_uint32);
           
           rtc.adjust(DateTime(tmp_uint32));
           
@@ -923,6 +929,55 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           send_and_log(destAddr, Pkt_Buff, pktLength);
           // increment the cmd executed counter
           CmdExeCtr++;
+          break;
+
+        // Req_Filename
+        case LINK_REQFILEINFO_CMD:
+          // Requests that the filename status be sent to the specified address
+          /*  Command format:
+           *   CCSDS Command Header (8 bytes)
+           *   Xbee address (1 byte) (or 0 if GND)
+           *   Idx (1 byte)
+           */
+          
+          debug_serial.print("Received Req_Filename Cmd to addr:");
+  
+          // extract the desired xbee address from the packet
+          pkt_pos = extractFromTlm(destAddr, data, 8);
+          debug_serial.print(destAddr);
+          debug_serial.print(" for file at idx: ");
+
+          pkt_pos = extractFromTlm(tmp_uint8, data, pkt_pos);
+          debug_serial.println(tmp_uint8);
+          
+          rootdir = SD.open("/");
+          rootdir.seek(0);
+
+          for(uint8_t i = 0; i < tmp_uint8; i++){
+
+            // open next file
+            entry =  rootdir.openNextFile();
+            
+          }
+
+          // if file idx exists
+          if (entry && !entry.isDirectory()) {
+
+            // create a FileInfo pkt
+            pktLength = create_FILEINFO_pkt(Pkt_Buff, entry);
+  debug_serial.println("3");
+            // send the data
+            send_and_log(destAddr, Pkt_Buff, pktLength);
+            entry.close();
+            rootdir.close();
+          
+            // increment the cmd executed counter
+            CmdExeCtr++;
+          }
+          else{
+            CmdRejCtr++;
+          }
+          
           break;
           
         // Reboot
@@ -1566,6 +1621,56 @@ uint16_t create_TIME_pkt(uint8_t Pkt_Buff[], DateTime t){
   return payloadSize;
 
 }
+
+uint16_t create_FILEINFO_pkt(uint8_t Pkt_Buff[], File entry){
+  /*  create_IMU_pkt()
+ * 
+ *  Creates an IMU packet containing the values of all the IMU sensors. 
+ *  Packet data is filled into the memory passed in as the argument. This function
+ *  assumes that the buffer is large enough to hold this packet.
+ *  
+ */
+  // get the current time from the RTC
+  DateTime now = rtc.now();
+  
+  // initalize counter to record length of packet
+  uint16_t payloadSize = 0;
+
+  // add length of primary header
+  payloadSize += sizeof(CCSDS_PriHdr_t);
+
+  // Populate primary header fields:
+  setAPID(Pkt_Buff, LINK_FILE_MSG_APID);
+  setSecHdrFlg(Pkt_Buff, 1);
+  setPacketType(Pkt_Buff, 0);
+  setVer(Pkt_Buff, 0);
+  setSeqCtr(Pkt_Buff, 0);
+  setSeqFlg(Pkt_Buff, 0);
+
+  // add length of secondary header
+  payloadSize += sizeof(CCSDS_TlmSecHdr_t);
+
+  // Populate the secondary header fields:
+  setTlmTimeSec(Pkt_Buff, now.unixtime());
+  setTlmTimeSubSec(Pkt_Buff, 0);
+
+  // Add counter values to the pkt
+  char filename[13]; // max filename is 8 characters + 1 period + 3 letter extention + 1 null term
+  sprintf(filename,"%12s",entry.name());
+
+  for(int i = 0; i < 13; i++){
+    debug_serial.print(filename[i]);
+  }
+
+  payloadSize = addStrToTlm(filename, Pkt_Buff, payloadSize);
+  payloadSize = addIntToTlm(entry.size(), Pkt_Buff, payloadSize);
+
+  // fill the length field
+  setPacketLength(Pkt_Buff, payloadSize);
+  
+  return payloadSize;
+}
+
 void send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len){
 /*  send_and_log()
  * 
