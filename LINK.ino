@@ -990,7 +990,7 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           uint8_t pkt_pos = 7;
           uint8_t file_idx = 0;
           uint16_t pktLength = 0;
-          File rootdir = SD.open("/");
+          File rootdir;
           File entry;
       
           // extract the desired xbee address from the packet
@@ -1053,7 +1053,7 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           uint32_t start_pos = 0;
           uint32_t end_pos = 0;
           uint16_t pktLength = 0;
-          File rootdir = SD.open("/");
+          File rootdir;
           File entry;
       
           // extract the desired xbee address from the packet
