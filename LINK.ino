@@ -100,6 +100,7 @@
 #define LINK_FLTRREQ_CMD 15
 #define LINK_REQTIME_CMD 16
 #define LINK_REQFILEINFO_CMD 17
+#define LINK_REQFILEPART_CMD 18
 #define LINK_SETFLTR_CMD 20
 #define LINK_RESETCTR_CMD 30
 #define LINK_FWDMSG_CMD 40 
@@ -239,6 +240,7 @@ uint16_t create_PWR_pkt(uint8_t HK_Pkt_Buff[], struct PWRData_s PWRData);
 uint16_t create_ENV_pkt(uint8_t HK_Pkt_Buff[], struct ENVData_s ENVData);
 uint16_t create_TIME_pkt(uint8_t HK_Pkt_Buff[], DateTime t);
 uint16_t create_FILEINFO_pkt(uint8_t Pkt_Buff[], File entry);
+uint16_t create_FILEPART_pkt(uint8_t Pkt_Buff[], File entry, uint32_t start_pos, uint32_t end_pos);
 
 // sensor reading
 void read_imu(struct IMUData_s *IMUData);
@@ -646,24 +648,17 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
     if(validateChecksum(data)){
     
       uint8_t FcnCode = getCmdFunctionCode(data);
-      uint8_t destAddr = 0;
-      uint16_t pktLength = 0;
+      
       uint8_t HK_Pkt_Buff[36];
       uint8_t FLTR_TBL_Buff[FILT_TBL_NUM_EL*2+12];
       uint8_t Pkt_Buff[100];
-      uint16_t tbl_val = 0;
-      uint8_t pkt_pos = 7;
-      uint8_t tbl_idx = 0;
-      uint32_t tmp_uint32 = 0;
-      uint8_t tmp_uint8 = 0;
-      File rootdir = SD.open("/");
-      File entry;
   
       // respond to the command depending on what type of command it is
       switch(FcnCode){
   
         // NoOp Cmd
         case LINK_NOOP_CMD:
+        {
           // No action other than to increment the interface counters
           
           debug_serial.println("Received NoOp Cmd");
@@ -671,16 +666,19 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-          
+        }
         // REQ_HK
         case LINK_HKREQ_CMD:
+        {
           // Requests that an HK packet be sent to the ground
           debug_serial.print("Received HKReq Cmd to addr ");
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
            *   Xbee address (1 byte) (or 0 if Gnd)
            */
-  
+          uint8_t destAddr = 0;
+          uint16_t pktLength = 0;
+          
           // extract the desintation address from the command
           extractFromTlm(destAddr, data, 8);
           debug_serial.println(destAddr);
@@ -694,9 +692,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-                  
+        } 
         // FwdMessage
         case LINK_FWDMSG_CMD:
+        {
           // Requests that the data portion of this command be forwarded to the specified xbee address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
@@ -705,7 +704,11 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            */
            
           debug_serial.print("Received FwdMessage Cmd of length ");
-  
+
+          uint8_t destAddr = 0;
+          uint8_t pkt_pos = 7;
+          uint16_t pktLength = 0;
+                
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(destAddr, data, 8);
   
@@ -722,9 +725,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-          
+        }
         // ResetCtr
         case LINK_RESETCTR_CMD:
+        {
           // Requests that all of the interface data counters be reset to zero
           
           debug_serial.println("Received ResetCtr Cmd");
@@ -740,9 +744,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-  
+        }
         // TlmFilterTable
         case LINK_FLTRREQ_CMD:
+        {
           // Requests that the values in the filter table be sent to the indicated address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
@@ -750,7 +755,11 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            */
            
           debug_serial.print("Received TlmFilterTable Cmd to addr: ");
-  
+
+          uint8_t destAddr = 0;
+          uint8_t pkt_pos = 7;
+          uint16_t pktLength = 0;
+          
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(destAddr, data, 8);
           debug_serial.println(destAddr);
@@ -764,11 +773,16 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-          
+        }
         // SetFilterTableIdx
         case LINK_SETFLTR_CMD:
+        {
            // Requests that the specified index of the filter table be updated with the specified value
-  
+
+           uint16_t tbl_val = 0;
+           uint8_t tbl_idx = 0;
+           uint8_t pkt_pos = 7;
+           
            debug_serial.print("Received SetFilterTableIdx Cmd");
   
            // extract index of element to be set
@@ -791,9 +805,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-          
+        }
         // ENV_Req
         case LINK_REQENV_CMD:
+        {
           // Requests that the ENV status be reported to the specified address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
@@ -801,7 +816,11 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            */
           
           debug_serial.print("Received ENV_Req Cmd to addr: ");
-  
+
+          uint8_t destAddr = 0;
+          uint8_t pkt_pos = 7;
+          uint16_t pktLength = 0;
+          
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(destAddr, data, 8);
           debug_serial.println(destAddr);
@@ -815,9 +834,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-          
+        }
         // PWR_Req
         case LINK_REQPWR_CMD:
+        {
           // Requests that the PWR status be reported to the specified address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
@@ -825,7 +845,11 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            */
           
           debug_serial.print("Received PWR_Req Cmd to addr: ");
-  
+
+          uint8_t destAddr = 0;
+          uint8_t pkt_pos = 7;
+          uint16_t pktLength = 0;
+          
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(destAddr, data, 8);
           debug_serial.println(destAddr);
@@ -839,9 +863,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-  
+        }
         // IMU_Req
         case LINK_REQIMU_CMD:
+        {
           // Requests that the IMU status be sent to the specified address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
@@ -849,7 +874,11 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            */
           
           debug_serial.print("Received IMU_Req Cmd to addr:");
-  
+
+          uint8_t destAddr = 0;
+          uint8_t pkt_pos = 7;
+          uint16_t pktLength = 0;
+          
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(destAddr, data, 8);
           debug_serial.println(destAddr);
@@ -863,9 +892,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-
+        }
         // Init_Req
         case LINK_REQINIT_CMD:
+        {
           // Requests that the IMU status be sent to the specified address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
@@ -873,7 +903,11 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            */
           
           debug_serial.print("Received Init_Req Cmd to addr:");
-  
+
+          uint8_t destAddr = 0;
+          uint8_t pkt_pos = 7;
+          uint16_t pktLength = 0;
+          
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(destAddr, data, 8);
           debug_serial.println(destAddr);
@@ -887,9 +921,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-
+        }
         // SetTime
         case LINK_SETTIME_CMD:
+        {
           // Sets the RTC time
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
@@ -897,19 +932,23 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            */
           
           debug_serial.print("Received SetTime Cmd with time: ");
-  
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(tmp_uint32, data, 8);
-          debug_serial.println(tmp_uint32);
+
+          uint8_t pkt_pos = 7;
+          uint32_t settime = 0;
           
-          rtc.adjust(DateTime(tmp_uint32));
+          // extract the time to set from the packet
+          pkt_pos = extractFromTlm(settime, data, 8);
+          debug_serial.println(settime);
+          
+          rtc.adjust(DateTime(settime));
           
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-          
+        }
         // GetTime
         case LINK_REQTIME_CMD:
+        {
           // Requests that the IMU status be sent to the specified address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
@@ -917,7 +956,11 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            */
           
           debug_serial.print("Received Req_Time Cmd to addr:");
-  
+
+          uint8_t destAddr = 0;
+          uint8_t pkt_pos = 7;
+          uint16_t pktLength = 0;
+          
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(destAddr, data, 8);
           debug_serial.println(destAddr);
@@ -930,9 +973,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;
-
+        }
         // Req_Filename
         case LINK_REQFILEINFO_CMD:
+        {
           // Requests that the filename status be sent to the specified address
           /*  Command format:
            *   CCSDS Command Header (8 bytes)
@@ -941,19 +985,26 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
            */
           
           debug_serial.print("Received Req_Filename Cmd to addr:");
-  
+
+          uint8_t destAddr = 0;
+          uint8_t pkt_pos = 7;
+          uint8_t file_idx = 0;
+          uint16_t pktLength = 0;
+          File rootdir = SD.open("/");
+          File entry;
+      
           // extract the desired xbee address from the packet
           pkt_pos = extractFromTlm(destAddr, data, 8);
           debug_serial.print(destAddr);
           debug_serial.print(" for file at idx: ");
 
-          pkt_pos = extractFromTlm(tmp_uint8, data, pkt_pos);
-          debug_serial.println(tmp_uint8);
+          pkt_pos = extractFromTlm(file_idx, data, pkt_pos);
+          debug_serial.println(file_idx);
           
           rootdir = SD.open("/");
           rootdir.seek(0);
 
-          for(uint8_t i = 0; i < tmp_uint8; i++){
+          for(uint8_t i = 0; i < file_idx; i++){
 
             // open next file
             entry =  rootdir.openNextFile();
@@ -965,7 +1016,7 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
 
             // create a FileInfo pkt
             pktLength = create_FILEINFO_pkt(Pkt_Buff, entry);
-  debug_serial.println("3");
+
             // send the data
             send_and_log(destAddr, Pkt_Buff, pktLength);
             entry.close();
@@ -979,9 +1030,76 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           }
           
           break;
+        }
+        // Req_FilePart
+        case LINK_REQFILEPART_CMD:
+        {
+          // Requests that the filename status be sent to the specified address
+          /*  Command format:
+           *   CCSDS Command Header (8 bytes)
+           *   Xbee address (1 byte) (or 0 if GND)
+           *   Idx (1 byte)
+           *   Start Pos (4byte)
+           *   End Pos (4byte)
+           */
           
+          debug_serial.print("Received Req_FilePart Cmd to addr ");          
+          
+          uint8_t destAddr = 0;
+          uint8_t pkt_pos = 7;
+          uint8_t file_idx = 0;
+          uint32_t start_pos = 0;
+          uint32_t end_pos = 0;
+          uint16_t pktLength = 0;
+          File rootdir = SD.open("/");
+          File entry;
+      
+          // extract the desired xbee address from the packet
+          pkt_pos = extractFromTlm(destAddr, data, 8);
+          debug_serial.print(destAddr);
+          debug_serial.print(" for file at idx: ");
+
+          pkt_pos = extractFromTlm(file_idx, data, pkt_pos);
+          debug_serial.println(file_idx);
+
+          debug_serial.print(" from pos: ");
+          pkt_pos = extractFromTlm(start_pos, data, pkt_pos);
+          debug_serial.print(" to: ");
+          pkt_pos = extractFromTlm(end_pos, data, pkt_pos);
+          
+          rootdir = SD.open("/");
+          rootdir.seek(0);
+
+          for(uint8_t i = 0; i < file_idx; i++){
+
+            // open next file
+            entry =  rootdir.openNextFile();
+            
+          }
+
+          // if file idx exists
+          if (entry && !entry.isDirectory()) {
+
+            // create a FileInfo pkt
+            pktLength = create_FILEPART_pkt(Pkt_Buff, entry, start_pos, end_pos);
+
+            // send the data
+            send_and_log(destAddr, Pkt_Buff, pktLength);
+            entry.close();
+            rootdir.close();
+          
+            // increment the cmd executed counter
+            CmdExeCtr++;
+          }
+          else{
+            CmdRejCtr++;
+          }
+          
+          break;
+        }
         // Reboot
         case LINK_REBOOT_CMD:
+        {
           // Requests that Link reboot
   
           debug_serial.println("Received Reboot Cmd");
@@ -992,14 +1110,16 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           // increment the cmd executed counter
           CmdExeCtr++;
           break;    
-                
+        }
         // unrecognized fcn code
         default:
+        {
           debug_serial.print("unrecognized fcn code ");
           debug_serial.println(FcnCode, HEX);
           
           // reject command
           CmdRejCtr++;
+        }
       } // end switch(FcnCode)
     } // end if(validateChecksum(data))
     else{
@@ -1670,6 +1790,60 @@ uint16_t create_FILEINFO_pkt(uint8_t Pkt_Buff[], File entry){
   
   return payloadSize;
 }
+
+
+uint16_t create_FILEPART_pkt(uint8_t Pkt_Buff[], File entry, uint32_t start_pos, uint32_t end_pos){
+  /*  create_IMU_pkt()
+ * 
+ *  Creates an IMU packet containing the values of all the IMU sensors. 
+ *  Packet data is filled into the memory passed in as the argument. This function
+ *  assumes that the buffer is large enough to hold this packet.
+ *  
+ */
+  // get the current time from the RTC
+  DateTime now = rtc.now();
+  
+  // initalize counter to record length of packet
+  uint16_t payloadSize = 0;
+
+  // add length of primary header
+  payloadSize += sizeof(CCSDS_PriHdr_t);
+
+  // Populate primary header fields:
+  setAPID(Pkt_Buff, LINK_FILE_MSG_APID);
+  setSecHdrFlg(Pkt_Buff, 1);
+  setPacketType(Pkt_Buff, 0);
+  setVer(Pkt_Buff, 0);
+  setSeqCtr(Pkt_Buff, 0);
+  setSeqFlg(Pkt_Buff, 0);
+
+  // add length of secondary header
+  payloadSize += sizeof(CCSDS_TlmSecHdr_t);
+
+  // Populate the secondary header fields:
+  setTlmTimeSec(Pkt_Buff, now.unixtime());
+  setTlmTimeSubSec(Pkt_Buff, 0);
+
+  // Add counter values to the pkt
+  entry.seek(start_pos);
+
+  // not sure why this doesn't work
+  // error: invalid conversion from 'uint8_t {aka unsigned char}' to 'void*' [-fpermissive]
+  //entry.read(Pkt_Buff[payloadSize], end_pos-start_pos);
+  //payloadSize += end_pos-start_pos;
+
+  for(int i = 0; i < end_pos-start_pos; i++){
+    payloadSize = addIntToTlm(entry.read(), Pkt_Buff, payloadSize);
+  }
+  
+  // fill the length field
+  setPacketLength(Pkt_Buff, payloadSize);
+  
+  return payloadSize;
+
+  
+}
+
 
 void send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len){
 /*  send_and_log()
