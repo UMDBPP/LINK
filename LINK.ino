@@ -649,7 +649,6 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
     
       uint8_t FcnCode = getCmdFunctionCode(data);
       
-      uint8_t HK_Pkt_Buff[36];
       uint8_t FLTR_TBL_Buff[FILT_TBL_NUM_EL*2+12];
       uint8_t Pkt_Buff[100];
   
@@ -684,10 +683,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           debug_serial.println(destAddr);
           
           // create a HK pkt
-          pktLength = create_HK_pkt(HK_Pkt_Buff);
+          pktLength = create_HK_pkt(Pkt_Buff);
 
           // send the data
-          send_and_log(destAddr, HK_Pkt_Buff, sizeof(HK_Pkt_Buff));
+          send_and_log(destAddr, Pkt_Buff, pktLength);
   
           // increment the cmd executed counter
           CmdExeCtr++;
@@ -1019,8 +1018,6 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
 
             // send the data
             send_and_log(destAddr, Pkt_Buff, pktLength);
-            entry.close();
-            rootdir.close();
           
             // increment the cmd executed counter
             CmdExeCtr++;
@@ -1028,6 +1025,10 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
           else{
             CmdRejCtr++;
           }
+
+          // close the files
+          entry.close();
+          rootdir.close();
           
           break;
         }
@@ -1085,16 +1086,17 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
 
             // send the data
             send_and_log(destAddr, Pkt_Buff, pktLength);
-            entry.close();
-            rootdir.close();
-          
+
             // increment the cmd executed counter
             CmdExeCtr++;
           }
           else{
             CmdRejCtr++;
           }
-          
+
+          // close the files
+          entry.close();
+          rootdir.close();
           break;
         }
         // Reboot
