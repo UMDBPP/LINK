@@ -67,7 +67,7 @@
 #include <Adafruit_BME280.h>
 #include <SD.h>
 #include <Adafruit_ADS1015.h>
-#include "CCSDS_XBee/ccsds_xbee_class.h"
+#include "ccsds_xbee.h"
 #include <SSC.h>
 #include <EEPROM.h>
 
@@ -229,8 +229,6 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
 // interface
 void send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len);
 void radio_send_and_log(uint8_t data[], uint8_t data_len);
-void xbee_send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len);
-void logXbeePkt(File file, uint8_t data[], uint8_t len, uint8_t received_flg);
 
 // pkt creation
 uint16_t create_HK_payload(uint8_t Pkt_Buff[]);
@@ -515,7 +513,7 @@ void loop() {
   uint8_t ReadData[100];
 
   // read the data from the xbee with a 1ms timeout
-  BytesRead = ccsds_xbee._readXbeeMsg(ReadData, 1);
+  BytesRead = ccsds_xbee.readMsg(ReadData);
 
   // if data was read, record it in the Xbee Rcvd counter
   if(BytesRead > 0){
@@ -524,9 +522,6 @@ void loop() {
 
   // if data was read, process it as a CCSDS packet
   if(BytesRead > 0){
-
-    // log the received data
-    logPkt(xbeeLogFile, ReadData, BytesRead, LOG_RCVD);
 
     // check if the APID is included in the filter table, if so, forward it to ground
     if(checkApidFilterTable(getAPID(ReadData))){
@@ -575,7 +570,7 @@ void loop() {
     debug_serial.print(BytesRead);
     debug_serial.print(" bytes:");
     for (int i = 0; i < BytesRead; i++){
-      debug_serial.print(Buff_900toXbee[Buff_Pos+i]);
+      debug_serial.print(Buff_900toXbee[i], HEX);
       debug_serial.print(", ");
     }
     debug_serial.println();
@@ -593,7 +588,7 @@ void loop() {
     if(Buff_Pos >= getPacketLength(Buff_900toXbee)){
 
       // log the received data
-      logPkt(radioLogFile, Buff_900toXbee, Buff_Pos, LOG_RCVD);
+      ccsds_xbee.logPkt(radioLogFile, Buff_900toXbee, Buff_Pos, LOG_RCVD);
 
       // respond to the data
       command_response(Buff_900toXbee, Buff_Pos, IMUData, ENVData, PWRData);
@@ -1280,35 +1275,11 @@ void radio_send_and_log(uint8_t data[], uint8_t data_len){
   debug_serial.println();
 
   // log the sent data
-  logPkt(radioLogFile, data, data_len, LOG_SEND);
-
+  ccsds_xbee.logPkt(radioLogFile, data, data_len, LOG_SEND);
+  
   // update the radio send ctr
   RadioSentByteCtr += data_len;
 
-}
-
-void xbee_send_and_log(uint8_t dest_addr, uint8_t data[], uint8_t data_len){
-/*  xbee_send_and_log()
- * 
- *  Sends the given data out over the xbee and adds an entry to the xbee log file.
- *  Also updates the xbee sent counter.
- */
- 
-  // send the data via xbee
-  ccsds_xbee.sendRawData(dest_addr, data, data_len);
-
-  debug_serial.print("Forwarding: ");
-  for(int i = 0; i <= data_len; i++){
-    debug_serial.print(data[i], HEX);
-    debug_serial.print(", ");
-  }
-  debug_serial.println();
-
-  // log the sent data
-  logPkt(xbeeLogFile, data, sizeof(data), 0);
-
-  // update the xbee send ctr
-  XbeeSentByteCtr += data_len;
 }
 
 void print_time(File file){
@@ -1325,44 +1296,6 @@ void print_time(File file){
   char buf[50];
   sprintf(buf, "%02d/%02d/%02d %02d:%02d:%02d.%03d", now.day(), now.month(), now.year(), now.hour(), now.minute(), now.second(),(nowMS - start_millis)%1000);  // print milliseconds);
   file.print(buf);
-}
-
-void logPkt(File file, uint8_t data[], uint8_t len, uint8_t received_flg){
-/*  logPkt()
- * 
- *  Prints an entry in the given log file containing the given data. Will prepend an
- *  'S' if the data was sent or an 'R' is the data was received based on the value
- *  of the received_flg.
- */
-
-  // if the file is open
-  if (file) {
-
-    // prepend an indicator of if the data was received or sent
-    // R indicates this was received data
-    if(received_flg){
-      file.print("R ");
-    }
-    else{
-      file.print("S ");
-    }
-    
-    // Print a timestamp
-    print_time(file);
-
-   char buf[50];
-
-    // print the data in hex
-    file.print(": ");
-    for(int i = 0; i < len; i++){
-        sprintf(buf, "%02x, ", data[i]);
-        file.print(buf);
-     }
-     file.println();
-     
-     // ensure the data gets written to the file
-     file.flush();
-   }
 }
 
 void log_imu(struct IMUData_s IMUData, File IMULogFile){
