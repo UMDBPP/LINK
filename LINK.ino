@@ -72,10 +72,6 @@
 #include <EEPROM.h>
 
 //// Enumerations
-// logging flag
-#define LOG_RCVD 1
-#define LOG_SEND 0
-
 // LINK APIDS
 #define LINK_CMD_APID 200
 #define LINK_HK_APID 210
@@ -1275,7 +1271,7 @@ void radio_send_and_log(uint8_t data[], uint8_t data_len){
   debug_serial.println();
 
   // log the sent data
-  ccsds_xbee.logPkt(radioLogFile, data, data_len, LOG_SEND);
+  ccsds_xbee.logPkt(radioLogFile, data, data_len, LOG_SENT);
   
   // update the radio send ctr
   RadioSentByteCtr += data_len;
