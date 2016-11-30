@@ -644,574 +644,574 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
 
   // get the APID (the field which identifies the type of packet)
   uint16_t _APID = getAPID(data);
-    
-  // check if the data is a command packet with the LINK command APID
-  if(getPacketType(data) && _APID == LINK_CMD_APID){
 
-    // validate the packet checksum
-    if(validateChecksum(data)){
-    
-      uint8_t FcnCode = getCmdFunctionCode(data);
-      
-      uint8_t FLTR_TBL_Buff[FILT_TBL_NUM_EL*2+12];
-      uint8_t Pkt_Buff[100];
-      uint8_t payload_buff[100];
-  
-      // respond to the command depending on what type of command it is
-      switch(FcnCode){
-  
-        // NoOp Cmd
-        case LINK_NOOP_CMD:
-        {
-          // No action other than to increment the interface counters
-          
-          debug_serial.println("Received NoOp Cmd");
-  
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // REQ_HK
-        case LINK_HKREQ_CMD:
-        {
-          // Requests that an HK packet be sent to the ground
-          debug_serial.print("Received HKReq Cmd to addr ");
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if Gnd)
-           */
-          uint8_t destAddr = 0;
-          uint16_t pktLength = 0;
-          uint8_t payloadLength = 0;
-          
-          // extract the desintation address from the command
-          extractFromTlm(destAddr, data, 8);
-          debug_serial.println(destAddr);
-          
-          // create a HK pkt
-          payloadLength = create_HK_payload(payload_buff);
-
-          pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_HK_APID, payload_buff, payloadLength);
-          if(pktLength > 0){
-            
-            // send the data
-            send_and_log(destAddr, Pkt_Buff, pktLength); 
-          }
-  
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        } 
-        // FwdMessage
-        case LINK_FWDMSG_CMD:
-        {
-          // Requests that the data portion of this command be forwarded to the specified xbee address
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if GND)
-           *   Data (rest of packet)
-           */
-           
-          debug_serial.print("Received FwdMessage Cmd of length ");
-
-          uint8_t destAddr = 0;
-          uint8_t pkt_pos = 7;
-          uint16_t pktLength = 0;
-                
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(destAddr, data, 8);
-  
-          // extract the length of the command received (used for determining how long the data
-          // to-be-forwarded is)
-          pktLength = getPacketLength(data);
-          debug_serial.print(pktLength-pkt_pos);
-          debug_serial.print(" to addr ");
-          debug_serial.println(destAddr);
-
-          // send the data
-          send_and_log(destAddr, data + pkt_pos, pktLength-pkt_pos);
-  
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // ResetCtr
-        case LINK_RESETCTR_CMD:
-        {
-          // Requests that all of the interface data counters be reset to zero
-          
-          debug_serial.println("Received ResetCtr Cmd");
-  
-          // reset all counters to zero
-          CmdExeCtr = 0;
-          CmdRejCtr = 0;
-          RadioRcvdByteCtr = 0;
-          RadioSentByteCtr = 0;
-          ccsds_xbee.resetCounters();
-  
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // TlmFilterTable
-        case LINK_FLTRREQ_CMD:
-        {
-          // Requests that the values in the filter table be sent to the indicated address
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if GND)
-           */
-           
-          debug_serial.print("Received TlmFilterTable Cmd to addr: ");
-
-          uint8_t destAddr = 0;
-          uint8_t pkt_pos = 7;
-          uint16_t pktLength = 0;
-          uint8_t payloadLength = 0;
-          
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(destAddr, data, 8);
-          debug_serial.println(destAddr);
-
-          // add elements of filter table to the packet
-          for(int i = 0; i < FILT_TBL_NUM_EL; i++){
-            payloadLength = addIntToTlm(filter_table[i], payload_buff, payloadLength); // Add the value of the table to message
-          }
-
-          pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_FLTR_TBL_APID, payload_buff, payloadLength);
-          if(pktLength > 0){
-            
-            // send the data
-            send_and_log(destAddr, Pkt_Buff, pktLength); 
-          }
-  
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // SetFilterTableIdx
-        case LINK_SETFLTR_CMD:
-        {
-           // Requests that the specified index of the filter table be updated with the specified value
-
-           uint16_t tbl_val = 0;
-           uint8_t tbl_idx = 0;
-           uint8_t pkt_pos = 7;
-           
-           debug_serial.print("Received SetFilterTableIdx Cmd");
-  
-           // extract index of element to be set
-           pkt_pos = extractFromTlm(tbl_idx, data, 8);
-  
-           // extract value of the element
-           extractFromTlm(tbl_val, data, pkt_pos);
-  
-           debug_serial.print(" for idx ");
-           debug_serial.print(tbl_idx);
-           debug_serial.print(" and val ");
-           debug_serial.println(tbl_val);
-           
-           // update the filter table
-           filter_table[tbl_idx] = tbl_val;
-
-           debug_serial.println("Updating EEPROM storage");
-           EEPROM.put(FLTR_TBL_START_ADDR+tbl_idx*2,tbl_val);  
-
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // ENV_Req
-        case LINK_REQENV_CMD:
-        {
-          // Requests that the ENV status be reported to the specified address
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if GND)
-           */
-          
-          debug_serial.print("Received ENV_Req Cmd to addr: ");
-
-          uint8_t destAddr = 0;
-          uint8_t pkt_pos = 7;
-          uint16_t pktLength = 0;
-          uint8_t payloadLength = 0;
-          
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(destAddr, data, 8);
-          debug_serial.println(destAddr);
-
-          // fill the data into an array
-          payloadLength = create_ENV_payload(payload_buff, ENVData);
-
-          pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_ENV_APID, payload_buff, payloadLength);
-          if(pktLength > 0){
-            
-            // send the data
-            send_and_log(destAddr, Pkt_Buff, pktLength); 
-          }
-          
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // PWR_Req
-        case LINK_REQPWR_CMD:
-        {
-          // Requests that the PWR status be reported to the specified address
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if GND)
-           */
-          
-          debug_serial.print("Received PWR_Req Cmd to addr: ");
-
-          uint8_t destAddr = 0;
-          uint8_t pkt_pos = 7;
-          uint16_t pktLength = 0;
-          uint8_t payloadLength = 0;
-          
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(destAddr, data, 8);
-          debug_serial.println(destAddr);
-          
-          // create a PWR pkt
-          payloadLength = create_PWR_payload(payload_buff, PWRData);
-  
-          pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_PWR_APID, payload_buff, payloadLength);
-          if(pktLength > 0){
-            
-            // send the data
-            send_and_log(destAddr, Pkt_Buff, pktLength); 
-          }
-          
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // IMU_Req
-        case LINK_REQIMU_CMD:
-        {
-          // Requests that the IMU status be sent to the specified address
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if GND)
-           */
-          
-          debug_serial.print("Received IMU_Req Cmd to addr:");
-
-          uint8_t destAddr = 0;
-          uint8_t pkt_pos = 7;
-          uint16_t pktLength = 0;
-          uint8_t payloadLength = 0;
-          
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(destAddr, data, 8);
-          debug_serial.println(destAddr);
-          
-          // fill the data into an array
-          payloadLength = create_IMU_payload(payload_buff, IMUData);
-
-          pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_IMU_APID, payload_buff, payloadLength);
-          if(pktLength > 0){
-            
-            // send the data
-            send_and_log(destAddr, Pkt_Buff, pktLength); 
-          }
-          
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // Init_Req
-        case LINK_REQINIT_CMD:
-        {
-          // Requests that the IMU status be sent to the specified address
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if GND)
-           */
-          
-          debug_serial.print("Received Init_Req Cmd to addr:");
-
-          uint8_t destAddr = 0;
-          uint8_t pkt_pos = 7;
-          uint16_t pktLength = 0;
-          uint8_t payloadLength = 0;
-          
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(destAddr, data, 8);
-          debug_serial.println(destAddr);
-          
-          // create a Init pkt
-          payloadLength = create_INIT_payload(payload_buff, InitStat);
-
-          pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_INIT_APID, payload_buff, payloadLength);
-          if(pktLength > 0){
-            
-            // send the data
-            send_and_log(destAddr, Pkt_Buff, pktLength); 
-          }
-          
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // SetTime
-        case LINK_SETTIME_CMD:
-        {
-          // Sets the RTC time
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Time (4 byte)
-           */
-          
-          debug_serial.print("Received SetTime Cmd with time: ");
-
-          uint8_t pkt_pos = 7;
-          uint32_t settime = 0;
-          
-          // extract the time to set from the packet
-          pkt_pos = extractFromTlm(settime, data, 8);
-          debug_serial.println(settime);
-          
-          rtc.adjust(DateTime(settime));
-          
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // GetTime
-        case LINK_REQTIME_CMD:
-        {
-          // Requests that the IMU status be sent to the specified address
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if GND)
-           */
-          
-          debug_serial.print("Received Req_Time Cmd to addr:");
-
-          uint8_t destAddr = 0;
-          uint8_t pkt_pos = 7;
-          uint16_t pktLength = 0;
-          uint8_t payloadLength = 0;
-          
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(destAddr, data, 8);
-          debug_serial.println(destAddr);
-
-          // create a Init pkt
-          payloadLength = addIntToTlm(rtc.now().unixtime(), payload_buff, payloadLength); // Add system cal status to message [uint8_t]
-
-          pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_TIME_MSG_APID, payload_buff, payloadLength);
-          if(pktLength > 0){
-            
-            // send the data
-            send_and_log(destAddr, Pkt_Buff, pktLength); 
-          }
-          
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;
-        }
-        // Req_FileInfo
-        case LINK_REQFILEINFO_CMD:
-        {
-          // Requests that the fileinfo status be sent to the specified address
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if GND)
-           *   Idx (1 byte)
-           */
-          
-          debug_serial.print("Received Req_FileInfo Cmd to addr:");
-
-          uint8_t destAddr = 0;
-          uint8_t pkt_pos = 7;
-          uint8_t file_idx = 0;
-          uint16_t pktLength = 0;
-          uint8_t payloadLength = 0;
-          File rootdir;
-          File entry;
-      
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(destAddr, data, 8);
-          debug_serial.print(destAddr);
-          debug_serial.print(" for file at idx: ");
-
-          pkt_pos = extractFromTlm(file_idx, data, pkt_pos);
-          debug_serial.println(file_idx);
-          
-          rootdir = SD.open("/");
-          rootdir.seek(0);
-
-          for(uint8_t i = 0; i < file_idx; i++){
-
-            // open next file
-            entry =  rootdir.openNextFile();
-            
-          }
-
-          // if file idx exists
-          if (entry && !entry.isDirectory()) {
-
-              // Add counter values to the pkt
-              char filename[13]; // max filename is 8 characters + 1 period + 3 letter extention + 1 null term
-              sprintf(filename,"%12s",entry.name());
-
-              for(int i = 0; i < 13; i++){
-                debug_serial.print(filename[i]);
-              }
-              debug_serial.println();
-
-              payloadLength = addStrToTlm(filename, payload_buff, payloadLength);
-              payloadLength = addIntToTlm(entry.size(), payload_buff, payloadLength);
-
-            pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_FILEINFO_MSG_APID, payload_buff, payloadLength);
-            if(pktLength > 0){
-            
-              // send the data
-              send_and_log(destAddr, Pkt_Buff, pktLength); 
-            };
-          
-            // increment the cmd executed counter
-            CmdExeCtr++;
-          }
-          else{
-            CmdRejCtr++;
-          }
-
-          // close the files
-          entry.close();
-          rootdir.close();
-          
-          break;
-        }
-        // Req_FilePart
-        case LINK_REQFILEPART_CMD:
-        {
-          // Requests that the filename status be sent to the specified address
-          /*  Command format:
-           *   CCSDS Command Header (8 bytes)
-           *   Xbee address (1 byte) (or 0 if GND)
-           *   Idx (1 byte)
-           *   Start Pos (4byte)
-           *   End Pos (4byte)
-           */
-          
-          debug_serial.print("Received Req_FilePart Cmd to addr ");          
-          
-          uint8_t destAddr = 0;
-          uint8_t pkt_pos = 7;
-          uint8_t file_idx = 0;
-          uint32_t start_pos = 0;
-          uint32_t end_pos = 0;
-          uint16_t pktLength = 0;
-          uint8_t payloadLength = 0;
-          File rootdir;
-          File entry;
-      
-          // extract the desired xbee address from the packet
-          pkt_pos = extractFromTlm(destAddr, data, 8);
-          debug_serial.print(destAddr);
-          debug_serial.print(" for file at idx: ");
-
-          pkt_pos = extractFromTlm(file_idx, data, pkt_pos);
-          debug_serial.print(file_idx);
-
-          debug_serial.print(" from pos: ");
-          pkt_pos = extractFromTlm(start_pos, data, pkt_pos);
-          debug_serial.print(start_pos);
-          debug_serial.print(" to: ");
-          pkt_pos = extractFromTlm(end_pos, data, pkt_pos);
-          debug_serial.println(end_pos);
-
-          // if the user requested more bytes than a packet can hold
-          // then reject the command
-          if(end_pos - start_pos > PKT_MAX_LEN - 12){
-            CmdRejCtr++;
-            break;
-          }
-          
-          rootdir = SD.open("/");
-          rootdir.seek(0);
-
-          for(uint8_t i = 0; i < file_idx; i++){
-
-            // open next file
-            entry =  rootdir.openNextFile();
-            
-          }
-
-          // if file idx exists
-          if (entry && !entry.isDirectory()) {
-
-            // Add counter values to the pkt
-            entry.seek(start_pos);
-
-            // not sure why this doesn't work
-            // error: invalid conversion from 'uint8_t {aka unsigned char}' to 'void*' [-fpermissive]
-            //entry.read(Pkt_Buff[payloadSize], end_pos-start_pos);
-            //payloadSize += end_pos-start_pos;
-
-            for(int i = 0; i < end_pos-start_pos; i++){
-              payloadLength = addIntToTlm(entry.read(), payload_buff, payloadLength);
-            }
-
-            pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_FILEPART_MSG_APID, payload_buff, payloadLength);
-            if(pktLength > 0){
-            
-              // send the data
-              send_and_log(destAddr, Pkt_Buff, pktLength); 
-            };
-
-            // increment the cmd executed counter
-            CmdExeCtr++;
-          }
-          else{
-            CmdRejCtr++;
-          }
-
-          // close the files
-          entry.close();
-          rootdir.close();
-          break;
-        }
-        // Reboot
-        case LINK_REBOOT_CMD:
-        {
-          // Requests that Link reboot
-  
-          debug_serial.println("Received Reboot Cmd");
-  
-          // set the reboot timer
-          wdt_enable(WDTO_1S);
-  
-          // increment the cmd executed counter
-          CmdExeCtr++;
-          break;    
-        }
-        // unrecognized fcn code
-        default:
-        {
-          debug_serial.print("unrecognized fcn code ");
-          debug_serial.println(FcnCode, HEX);
-          
-          // reject command
-          CmdRejCtr++;
-        }
-      } // end switch(FcnCode)
-    } // end if(validateChecksum(data))
-    else{
-      debug_serial.println("Checksum doesn't match!");
-      CmdRejCtr++;
-    } // end else
-  } // end if(getPacketType(data) && _APID == LINK_CMD_APID){
-  else{
+  if(_APID != LINK_CMD_APID){
     debug_serial.print("Unrecognized apid 0x");
     debug_serial.println(_APID, HEX);
+    return;
   }
+  if(!getPacketType(data)){
+    debug_serial.print("Not a command packet");
+    return;
+  }
+  
+  // validate command checksum
+  if(!validateChecksum(data)){
+    Serial.println("Command checksum doesn't validate");
+    CmdRejCtr++;
+    return;
+  }
+    
+  uint8_t FLTR_TBL_Buff[FILT_TBL_NUM_EL*2+12];
+  uint8_t Pkt_Buff[100];
+  uint8_t payload_buff[100];
+
+  // respond to the command depending on what type of command it is
+  switch(getCmdFunctionCode(data)){
+
+    // NoOp Cmd
+    case LINK_NOOP_CMD:
+    {
+      // No action other than to increment the interface counters
+      
+      debug_serial.println("Received NoOp Cmd");
+
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // REQ_HK
+    case LINK_HKREQ_CMD:
+    {
+      // Requests that an HK packet be sent to the ground
+      debug_serial.print("Received HKReq Cmd to addr ");
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if Gnd)
+       */
+      uint8_t destAddr = 0;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      
+      // extract the desintation address from the command
+      extractFromTlm(destAddr, data, 8);
+      debug_serial.println(destAddr);
+      
+      // create a HK pkt
+      payloadLength = create_HK_payload(payload_buff);
+
+      pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_HK_APID, payload_buff, payloadLength);
+      if(pktLength > 0){
+        
+        // send the data
+        send_and_log(destAddr, Pkt_Buff, pktLength); 
+      }
+
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    } 
+    // FwdMessage
+    case LINK_FWDMSG_CMD:
+    {
+      // Requests that the data portion of this command be forwarded to the specified xbee address
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if GND)
+       *   Data (rest of packet)
+       */
+       
+      debug_serial.print("Received FwdMessage Cmd of length ");
+
+      uint8_t destAddr = 0;
+      uint8_t pkt_pos = 7;
+      uint16_t pktLength = 0;
+            
+      // extract the desired xbee address from the packet
+      pkt_pos = extractFromTlm(destAddr, data, 8);
+
+      // extract the length of the command received (used for determining how long the data
+      // to-be-forwarded is)
+      pktLength = getPacketLength(data);
+      debug_serial.print(pktLength-pkt_pos);
+      debug_serial.print(" to addr ");
+      debug_serial.println(destAddr);
+
+      // send the data
+      send_and_log(destAddr, data + pkt_pos, pktLength-pkt_pos);
+
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // ResetCtr
+    case LINK_RESETCTR_CMD:
+    {
+      // Requests that all of the interface data counters be reset to zero
+      
+      debug_serial.println("Received ResetCtr Cmd");
+
+      // reset all counters to zero
+      CmdExeCtr = 0;
+      CmdRejCtr = 0;
+      RadioRcvdByteCtr = 0;
+      RadioSentByteCtr = 0;
+      ccsds_xbee.resetCounters();
+
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // TlmFilterTable
+    case LINK_FLTRREQ_CMD:
+    {
+      // Requests that the values in the filter table be sent to the indicated address
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if GND)
+       */
+       
+      debug_serial.print("Received TlmFilterTable Cmd to addr: ");
+
+      uint8_t destAddr = 0;
+      uint8_t pkt_pos = 7;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      
+      // extract the desired xbee address from the packet
+      pkt_pos = extractFromTlm(destAddr, data, 8);
+      debug_serial.println(destAddr);
+
+      // add elements of filter table to the packet
+      for(int i = 0; i < FILT_TBL_NUM_EL; i++){
+        payloadLength = addIntToTlm(filter_table[i], payload_buff, payloadLength); // Add the value of the table to message
+      }
+
+      pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_FLTR_TBL_APID, payload_buff, payloadLength);
+      if(pktLength > 0){
+        
+        // send the data
+        send_and_log(destAddr, Pkt_Buff, pktLength); 
+      }
+
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // SetFilterTableIdx
+    case LINK_SETFLTR_CMD:
+    {
+       // Requests that the specified index of the filter table be updated with the specified value
+
+       uint16_t tbl_val = 0;
+       uint8_t tbl_idx = 0;
+       uint8_t pkt_pos = 7;
+       
+       debug_serial.print("Received SetFilterTableIdx Cmd");
+
+       // extract index of element to be set
+       pkt_pos = extractFromTlm(tbl_idx, data, 8);
+
+       // extract value of the element
+       extractFromTlm(tbl_val, data, pkt_pos);
+
+       debug_serial.print(" for idx ");
+       debug_serial.print(tbl_idx);
+       debug_serial.print(" and val ");
+       debug_serial.println(tbl_val);
+       
+       // update the filter table
+       filter_table[tbl_idx] = tbl_val;
+
+       debug_serial.println("Updating EEPROM storage");
+       EEPROM.put(FLTR_TBL_START_ADDR+tbl_idx*2,tbl_val);  
+
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // ENV_Req
+    case LINK_REQENV_CMD:
+    {
+      // Requests that the ENV status be reported to the specified address
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if GND)
+       */
+      
+      debug_serial.print("Received ENV_Req Cmd to addr: ");
+
+      uint8_t destAddr = 0;
+      uint8_t pkt_pos = 7;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      
+      // extract the desired xbee address from the packet
+      pkt_pos = extractFromTlm(destAddr, data, 8);
+      debug_serial.println(destAddr);
+
+      // fill the data into an array
+      payloadLength = create_ENV_payload(payload_buff, ENVData);
+
+      pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_ENV_APID, payload_buff, payloadLength);
+      if(pktLength > 0){
+        
+        // send the data
+        send_and_log(destAddr, Pkt_Buff, pktLength); 
+      }
+      
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // PWR_Req
+    case LINK_REQPWR_CMD:
+    {
+      // Requests that the PWR status be reported to the specified address
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if GND)
+       */
+      
+      debug_serial.print("Received PWR_Req Cmd to addr: ");
+
+      uint8_t destAddr = 0;
+      uint8_t pkt_pos = 7;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      
+      // extract the desired xbee address from the packet
+      pkt_pos = extractFromTlm(destAddr, data, 8);
+      debug_serial.println(destAddr);
+      
+      // create a PWR pkt
+      payloadLength = create_PWR_payload(payload_buff, PWRData);
+
+      pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_PWR_APID, payload_buff, payloadLength);
+      if(pktLength > 0){
+        
+        // send the data
+        send_and_log(destAddr, Pkt_Buff, pktLength); 
+      }
+      
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // IMU_Req
+    case LINK_REQIMU_CMD:
+    {
+      // Requests that the IMU status be sent to the specified address
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if GND)
+       */
+      
+      debug_serial.print("Received IMU_Req Cmd to addr:");
+
+      uint8_t destAddr = 0;
+      uint8_t pkt_pos = 7;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      
+      // extract the desired xbee address from the packet
+      pkt_pos = extractFromTlm(destAddr, data, 8);
+      debug_serial.println(destAddr);
+      
+      // fill the data into an array
+      payloadLength = create_IMU_payload(payload_buff, IMUData);
+
+      pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_IMU_APID, payload_buff, payloadLength);
+      if(pktLength > 0){
+        
+        // send the data
+        send_and_log(destAddr, Pkt_Buff, pktLength); 
+      }
+      
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // Init_Req
+    case LINK_REQINIT_CMD:
+    {
+      // Requests that the IMU status be sent to the specified address
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if GND)
+       */
+      
+      debug_serial.print("Received Init_Req Cmd to addr:");
+
+      uint8_t destAddr = 0;
+      uint8_t pkt_pos = 7;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      
+      // extract the desired xbee address from the packet
+      pkt_pos = extractFromTlm(destAddr, data, 8);
+      debug_serial.println(destAddr);
+      
+      // create a Init pkt
+      payloadLength = create_INIT_payload(payload_buff, InitStat);
+
+      pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_INIT_APID, payload_buff, payloadLength);
+      if(pktLength > 0){
+        
+        // send the data
+        send_and_log(destAddr, Pkt_Buff, pktLength); 
+      }
+      
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // SetTime
+    case LINK_SETTIME_CMD:
+    {
+      // Sets the RTC time
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Time (4 byte)
+       */
+      
+      debug_serial.print("Received SetTime Cmd with time: ");
+
+      uint8_t pkt_pos = 7;
+      uint32_t settime = 0;
+      
+      // extract the time to set from the packet
+      pkt_pos = extractFromTlm(settime, data, 8);
+      debug_serial.println(settime);
+      
+      rtc.adjust(DateTime(settime));
+      
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // GetTime
+    case LINK_REQTIME_CMD:
+    {
+      // Requests that the IMU status be sent to the specified address
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if GND)
+       */
+      
+      debug_serial.print("Received Req_Time Cmd to addr:");
+
+      uint8_t destAddr = 0;
+      uint8_t pkt_pos = 7;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      
+      // extract the desired xbee address from the packet
+      pkt_pos = extractFromTlm(destAddr, data, 8);
+      debug_serial.println(destAddr);
+
+      // create a Init pkt
+      payloadLength = addIntToTlm(rtc.now().unixtime(), payload_buff, payloadLength); // Add system cal status to message [uint8_t]
+
+      pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_TIME_MSG_APID, payload_buff, payloadLength);
+      if(pktLength > 0){
+        
+        // send the data
+        send_and_log(destAddr, Pkt_Buff, pktLength); 
+      }
+      
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;
+    }
+    // Req_FileInfo
+    case LINK_REQFILEINFO_CMD:
+    {
+      // Requests that the fileinfo status be sent to the specified address
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if GND)
+       *   Idx (1 byte)
+       */
+      
+      debug_serial.print("Received Req_FileInfo Cmd to addr:");
+
+      uint8_t destAddr = 0;
+      uint8_t pkt_pos = 7;
+      uint8_t file_idx = 0;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      File rootdir;
+      File entry;
+  
+      // extract the desired xbee address from the packet
+      pkt_pos = extractFromTlm(destAddr, data, 8);
+      debug_serial.print(destAddr);
+      debug_serial.print(" for file at idx: ");
+
+      pkt_pos = extractFromTlm(file_idx, data, pkt_pos);
+      debug_serial.println(file_idx);
+      
+      rootdir = SD.open("/");
+      rootdir.seek(0);
+
+      for(uint8_t i = 0; i < file_idx; i++){
+
+        // open next file
+        entry =  rootdir.openNextFile();
+        
+      }
+
+      // if file idx exists
+      if (entry && !entry.isDirectory()) {
+
+          // Add counter values to the pkt
+          char filename[13]; // max filename is 8 characters + 1 period + 3 letter extention + 1 null term
+          sprintf(filename,"%12s",entry.name());
+
+          for(int i = 0; i < 13; i++){
+            debug_serial.print(filename[i]);
+          }
+          debug_serial.println();
+
+          payloadLength = addStrToTlm(filename, payload_buff, payloadLength);
+          payloadLength = addIntToTlm(entry.size(), payload_buff, payloadLength);
+
+        pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_FILEINFO_MSG_APID, payload_buff, payloadLength);
+        if(pktLength > 0){
+        
+          // send the data
+          send_and_log(destAddr, Pkt_Buff, pktLength); 
+        };
+      
+        // increment the cmd executed counter
+        CmdExeCtr++;
+      }
+      else{
+        CmdRejCtr++;
+      }
+
+      // close the files
+      entry.close();
+      rootdir.close();
+      
+      break;
+    }
+    // Req_FilePart
+    case LINK_REQFILEPART_CMD:
+    {
+      // Requests that the filename status be sent to the specified address
+      /*  Command format:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (1 byte) (or 0 if GND)
+       *   Idx (1 byte)
+       *   Start Pos (4byte)
+       *   End Pos (4byte)
+       */
+      
+      debug_serial.print("Received Req_FilePart Cmd to addr ");          
+      
+      uint8_t destAddr = 0;
+      uint8_t pkt_pos = 7;
+      uint8_t file_idx = 0;
+      uint32_t start_pos = 0;
+      uint32_t end_pos = 0;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      File rootdir;
+      File entry;
+  
+      // extract the desired xbee address from the packet
+      pkt_pos = extractFromTlm(destAddr, data, 8);
+      debug_serial.print(destAddr);
+      debug_serial.print(" for file at idx: ");
+
+      pkt_pos = extractFromTlm(file_idx, data, pkt_pos);
+      debug_serial.print(file_idx);
+
+      debug_serial.print(" from pos: ");
+      pkt_pos = extractFromTlm(start_pos, data, pkt_pos);
+      debug_serial.print(start_pos);
+      debug_serial.print(" to: ");
+      pkt_pos = extractFromTlm(end_pos, data, pkt_pos);
+      debug_serial.println(end_pos);
+
+      // if the user requested more bytes than a packet can hold
+      // then reject the command
+      if(end_pos - start_pos > PKT_MAX_LEN - 12){
+        CmdRejCtr++;
+        break;
+      }
+      
+      rootdir = SD.open("/");
+      rootdir.seek(0);
+
+      for(uint8_t i = 0; i < file_idx; i++){
+
+        // open next file
+        entry =  rootdir.openNextFile();
+        
+      }
+
+      // if file idx exists
+      if (entry && !entry.isDirectory()) {
+
+        // Add counter values to the pkt
+        entry.seek(start_pos);
+
+        // not sure why this doesn't work
+        // error: invalid conversion from 'uint8_t {aka unsigned char}' to 'void*' [-fpermissive]
+        //entry.read(Pkt_Buff[payloadSize], end_pos-start_pos);
+        //payloadSize += end_pos-start_pos;
+
+        for(int i = 0; i < end_pos-start_pos; i++){
+          payloadLength = addIntToTlm(entry.read(), payload_buff, payloadLength);
+        }
+
+        pktLength = ccsds_xbee.createTlmMsg(Pkt_Buff, LINK_FILEPART_MSG_APID, payload_buff, payloadLength);
+        if(pktLength > 0){
+        
+          // send the data
+          send_and_log(destAddr, Pkt_Buff, pktLength); 
+        };
+
+        // increment the cmd executed counter
+        CmdExeCtr++;
+      }
+      else{
+        CmdRejCtr++;
+      }
+
+      // close the files
+      entry.close();
+      rootdir.close();
+      break;
+    }
+    // Reboot
+    case LINK_REBOOT_CMD:
+    {
+      // Requests that Link reboot
+
+      debug_serial.println("Received Reboot Cmd");
+
+      // set the reboot timer
+      wdt_enable(WDTO_1S);
+
+      // increment the cmd executed counter
+      CmdExeCtr++;
+      break;    
+    }
+    // unrecognized fcn code
+    default:
+    {
+      debug_serial.print("unrecognized fcn code ");
+      debug_serial.println(getCmdFunctionCode(data), HEX);
+      
+      // reject command
+      CmdRejCtr++;
+    }
+  } // end switch(FcnCode)
+
 } // end command_response()
 
 uint16_t create_HK_payload(uint8_t Pkt_Buff[]){
