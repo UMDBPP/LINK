@@ -72,6 +72,10 @@
 #include <EEPROM.h>
 
 //// Enumerations
+// Name
+#define PAYLOAD_NAME "Test" 
+// Must be no longer than 8 characters
+
 // logging flag
 #define LOG_RCVD 1
 #define LOG_SEND 0
@@ -87,6 +91,7 @@
 #define LINK_TIME_MSG_APID 216
 #define LINK_FILEINFO_MSG_APID 217
 #define LINK_FILEPART_MSG_APID 218
+#define NAME_APID 219
 #define LINK_GND_MSG_APID 240 
 
 // LINK FcnCodes
@@ -100,6 +105,7 @@
 #define LINK_REQTIME_CMD 16
 #define LINK_REQFILEINFO_CMD 17
 #define LINK_REQFILEPART_CMD 18
+#define REQNAME_FCNCODE 19
 #define LINK_SETFLTR_CMD 20
 #define LINK_RESETCTR_CMD 30
 #define LINK_FWDMSG_CMD 40 
@@ -680,6 +686,58 @@ void command_response(uint8_t data[], uint8_t data_len, struct IMUData_s IMUData
       CmdExeCtr++;
       break;
     }
+    // REQ_Name Cmd
+    case REQNAME_FCNCODE:
+    {
+      /* 
+       * This command requests that a packet containing the payload's
+       * name be sent to a specific xbee. The format of the command is:
+       *   CCSDS Command Header (8 bytes)
+       *   Xbee address (uint8_t)
+       * There is one parameter associated with this command, the address
+       * of the xbee to send the Name message to. The format of the Name message
+       * which is sent out is:
+       *   CCSDS Telemetry Header (12 bytes)
+       *   Payload Name (string, 8 bytes)
+       */ 
+      debug_serial.print("Received Name Cmd to addr ");
+
+      // define variables to process the command
+      uint8_t NamedestAddr = 0;
+      uint16_t pktLength = 0;
+      uint8_t payloadLength = 0;
+      int success_flg = 0;
+      
+      // define buffer to create the response in
+      uint8_t Name_Payload_Buff[PKT_MAX_LEN];
+      
+      // extract the desintation address from the command
+      extractFromTlm(NamedestAddr, data, 8);
+      debug_serial.println(NamedestAddr);
+
+      // Use sprintf to pad/trim the string if the payload name isn't
+      // exactly 8 characters
+      char payloadname[8]; 
+      sprintf(payloadname,"%8.8s",PAYLOAD_NAME);
+
+      // print the name to debug
+      debug_serial.println(payloadname);
+      
+      // add the information to the buffer
+      payloadLength = addStrToTlm(payloadname, Name_Payload_Buff, payloadLength);
+
+      // send the telemetry message by adding the buffer to the header
+      success_flg = ccsds_xbee.sendTlmMsg(NamedestAddr, NAME_APID, Name_Payload_Buff, payloadLength);
+            
+      if(success_flg > 0){
+        // increment the cmd executed counter
+        CmdExeCtr++;
+      }
+      else{
+        CmdRejCtr++;
+      }
+      break;
+    } 
     // REQ_HK
     case LINK_HKREQ_CMD:
     {
