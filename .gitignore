@@ -8,3 +8,6 @@
 *.o
 *.mk
 Release/makefile
+.idea/*
+cmake/*
+CMakeLists.txt
